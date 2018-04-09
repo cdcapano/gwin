@@ -127,9 +127,6 @@ class BaseLikelihoodEvaluator(object):
     sampling_transforms : list, optional
         List of transforms to use to go between the variable args and the
         sampling parameters. Required if ``sampling_parameters`` is not None.
-    waveform_transforms : list, optional
-        List of transforms to use to go from the variable args to parameters
-        understood by the waveform generator.
 
     Attributes
     ----------
@@ -169,7 +166,7 @@ class BaseLikelihoodEvaluator(object):
 
     def __init__(self, variable_args, prior=None,
                  sampling_parameters=None, replace_parameters=None,
-                 sampling_transforms=None, waveform_transforms=None,
+                 sampling_transforms=None,
                  return_meta=True):
         if isinstance(variable_args, basestring):
             variable_args = (variable_args,)
@@ -207,7 +204,6 @@ class BaseLikelihoodEvaluator(object):
         else:
             self._sampling_args = self._variable_args
             self._sampling_transforms = None
-        self._waveform_transforms = waveform_transforms
 
     @property
     def variable_args(self):
@@ -434,6 +430,28 @@ class BaseLikelihoodEvaluator(object):
         """
         cls._callfunc = getattr(cls, funcname)
 
+    def _transform_params(self, params):
+        """Applies all transforms to the given list of param values.
+
+        Parameters
+        ----------
+        params : list
+            A list of values. These are assumed to be in the same order as
+            ``variable_args``.
+
+        Returns
+        -------
+        dict
+            A dictionary of the transformed parameters.
+        """
+        params = dict(zip(self._sampling_args, params))
+        # apply inverse transforms to go from sampling parameters to
+        # variable args
+        params = self.apply_sampling_transforms(params, inverse=True)
+        # apply boundary conditions
+        params = self._prior.apply_boundary_conditions(**params)
+        return params
+
     def evaluate(self, params, callfunc=None):
         """Evaluates the call function at the given list of parameter values.
 
@@ -453,17 +471,7 @@ class BaseLikelihoodEvaluator(object):
             ``return_meta`` is True, a tuple of the output of the call function
             and the meta data.
         """
-        params = dict(zip(self._sampling_args, params))
-        # apply inverse transforms to go from sampling parameters to
-        # variable args
-        params = self.apply_sampling_transforms(params, inverse=True)
-        # apply boundary conditions
-        params = self._prior.apply_boundary_conditions(**params)
-        # apply waveform transforms
-        if self._waveform_transforms is not None:
-            params = transforms.apply_transforms(params,
-                                                 self._waveform_transforms,
-                                                 inverse=False)
+        params = self._transform_params(params)
         # apply any boundary conditions to the parameters before
         # generating/evaluating
         if callfunc is not None:
@@ -666,6 +674,10 @@ class DataBasedLikelihoodEvaluator(BaseLikelihoodEvaluator):
     data : dict
         A dictionary of data, in which the keys are the detector names and the
         values are the data.
+    waveform_transforms : list, optional
+        List of transforms to use to go from the variable args to parameters
+        understood by the waveform generator.
+
     \**kwargs :
         All other keyword arguments are passed to ``BaseLikelihoodEvaluator``.
 
@@ -680,11 +692,12 @@ class DataBasedLikelihoodEvaluator(BaseLikelihoodEvaluator):
     """
     name = None
     def __init__(self, variable_args, waveform_generator, data,
-                 **kwargs):
+                 waveform_transforms=None, **kwargs):
         # store data, waveform generator
         self._waveform_generator = waveform_generator
         # we'll store a copy of the data
         self._data = {ifo: d.copy() for ifo,d in data.items()}
+        self._waveform_transforms = waveform_transforms
         super(DataBasedLikelihoodEvaluator, self).__init__(variable_args,
             **kwargs)
 
@@ -697,6 +710,18 @@ class DataBasedLikelihoodEvaluator(BaseLikelihoodEvaluator):
     def data(self):
         """Returns the data that was set."""
         return self._data
+
+    def _transform_params(self, params):
+        """Add waveform transforms to parent's ``_transform_params``."""
+        params = super(DataBasedLikelihoodEvaluator, self)._transform_params(
+            params)
+        # apply waveform transforms
+        if self._waveform_transforms is not None:
+            params = transforms.apply_transforms(params,
+                                                 self._waveform_transforms,
+                                                 inverse=False)
+        return params
+
 
 
 class GaussianLikelihood(DataBasedLikelihoodEvaluator):
