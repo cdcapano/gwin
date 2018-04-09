@@ -57,8 +57,7 @@ class _NoPrior(object):
 
 
 class BaseLikelihoodEvaluator(object):
-    r"""Base container class for generating waveforms, storing the data, and
-    computing posteriors.
+    r"""Base container class for computing posteriors.
 
     The nomenclature used by this class and those that inherit from it is as
     follows: Given some model parameters :math:`\Theta` and some data
@@ -115,11 +114,6 @@ class BaseLikelihoodEvaluator(object):
     ----------
     variable_args : (tuple of) string(s)
         A tuple of parameter names that will be varied.
-    waveform_generator : generator class, optional
-        A generator class that creates waveforms.
-    data : dict, optional
-        A dictionary of data, in which the keys are the detector names and the
-        values are the data.
     prior : callable, optional
         A callable class or function that computes the log of the prior. If
         None provided, will use ``_noprior``, which returns 0 for all parameter
@@ -139,10 +133,6 @@ class BaseLikelihoodEvaluator(object):
 
     Attributes
     ----------
-    waveform_generator : dict
-        The waveform generator that the class was initialized with.
-    data : dict
-        The data that the class was initialized with.
     lognl : {None, float}
         The log of the noise likelihood summed over the number of detectors.
     return_meta : {True, bool}
@@ -177,8 +167,7 @@ class BaseLikelihoodEvaluator(object):
     name = None
     required_kwargs = []
 
-    def __init__(self, variable_args,
-                 waveform_generator=None, data=None, prior=None,
+    def __init__(self, variable_args, prior=None,
                  sampling_parameters=None, replace_parameters=None,
                  sampling_transforms=None, waveform_transforms=None,
                  return_meta=True):
@@ -187,13 +176,6 @@ class BaseLikelihoodEvaluator(object):
         if not isinstance(variable_args, tuple):
             variable_args = tuple(variable_args)
         self._variable_args = variable_args
-        # store data, waveform generator
-        self._waveform_generator = waveform_generator
-        # we'll store a copy of the data
-        if data is not None:
-            self._data = dict([[ifo, 1*data[ifo]] for ifo in data])
-        else:
-            self._data = None
         # store prior
         if prior is None:
             self._prior = _NoPrior()
@@ -231,16 +213,6 @@ class BaseLikelihoodEvaluator(object):
     def variable_args(self):
         """Returns the variable arguments."""
         return self._variable_args
-
-    @property
-    def waveform_generator(self):
-        """Returns the waveform generator that was set."""
-        return self._waveform_generator
-
-    @property
-    def data(self):
-        """Returns the data that was set."""
-        return self._data
 
     @property
     def sampling_args(self):
@@ -678,7 +650,56 @@ class TestVolcano(BaseLikelihoodEvaluator):
 # =============================================================================
 #
 
-class GaussianLikelihood(BaseLikelihoodEvaluator):
+class DataBasedLikelihoodEvaluator(BaseLikelihoodEvaluator):
+    r"""A likelihood evaulator that requires data and a waveform generator.
+
+    Like ``BaseLikelihoodEvaluator``, this class only provides boiler-plate
+    attributes and methods for evaluating likelihoods. Classes that make use
+    of data and a waveform generator should inherit from this.
+
+    Parameters
+    ----------
+    variable_args : (tuple of) string(s)
+        A tuple of parameter names that will be varied.
+    waveform_generator : generator class
+        A generator class that creates waveforms.
+    data : dict
+        A dictionary of data, in which the keys are the detector names and the
+        values are the data.
+    \**kwargs :
+        All other keyword arguments are passed to ``BaseLikelihoodEvaluator``.
+
+    Attributes
+    ----------
+    waveform_generator : dict
+        The waveform generator that the class was initialized with.
+    data : dict
+        The data that the class was initialized with.
+
+    For additional attributes and methods, see ``BaseLikelihoodEvaluator``.
+    """
+    name = None
+    def __init__(self, variable_args, waveform_generator, data,
+                 **kwargs):
+        # store data, waveform generator
+        self._waveform_generator = waveform_generator
+        # we'll store a copy of the data
+        self._data = {ifo: d.copy() for ifo,d in data.items()}
+        super(DataBasedLikelihoodEvaluator, self).__init__(variable_args,
+            **kwargs)
+
+    @property
+    def waveform_generator(self):
+        """Returns the waveform generator that was set."""
+        return self._waveform_generator
+
+    @property
+    def data(self):
+        """Returns the data that was set."""
+        return self._data
+
+
+class GaussianLikelihood(DataBasedLikelihoodEvaluator):
     r"""Computes log likelihoods assuming the detectors' noise is Gaussian.
 
     With Gaussian noise the log likelihood functions for signal
@@ -844,20 +865,13 @@ class GaussianLikelihood(BaseLikelihoodEvaluator):
     name = 'gaussian'
     required_kwargs = ['waveform_generator', 'data', 'f_lower']
 
-    def __init__(self, variable_args, waveform_generator=None, data=None,
-                 f_lower=None, psds=None, f_upper=None, norm=None,
+    def __init__(self, variable_args, waveform_generator, data,
+                 f_lower, psds=None, f_upper=None, norm=None,
                  **kwargs):
-        if waveform_generator is None:
-            raise ValueError("waveform_generator must be provided")
-        if data is None:
-            raise ValueError("data must be provided")
-        if f_lower is None:
-            raise ValueError("f_lower must be provided")
         # set up the boiler-plate attributes; note: we'll compute the
         # log evidence later
         super(GaussianLikelihood, self).__init__(
-            variable_args,
-            waveform_generator=waveform_generator, data=data,
+            variable_args, waveform_generator, data,
             **kwargs)
         # check that the data and waveform generator have the same detectors
         if (sorted(waveform_generator.detectors.keys()) !=
