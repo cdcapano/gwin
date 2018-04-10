@@ -119,6 +119,8 @@ class BaseLikelihoodEvaluator(object):
     ----------
     variable_args : (tuple of) string(s)
         A tuple of parameter names that will be varied.
+    static_args : dict, optional
+        A dictionary of parameter names -> values to keep fixed.
     prior : callable, optional
         A callable class or function that computes the log of the prior. If
         None provided, will use ``_noprior``, which returns 0 for all parameter
@@ -169,14 +171,18 @@ class BaseLikelihoodEvaluator(object):
     name = None
     required_kwargs = []
 
-    def __init__(self, variable_args, prior=None,
+    def __init__(self, variable_args, static_args=None, prior=None,
                  sampling_parameters=None, replace_parameters=None,
                  sampling_transforms=None, return_meta=True):
+        # store variable and static args
         if isinstance(variable_args, basestring):
             variable_args = (variable_args,)
         if not isinstance(variable_args, tuple):
             variable_args = tuple(variable_args)
         self._variable_args = variable_args
+        if static_args is None:
+            static_args = {}
+        self._static_args = static_args
         # store prior
         if prior is None:
             self._prior = _NoPrior()
@@ -209,6 +215,9 @@ class BaseLikelihoodEvaluator(object):
             self._sampling_args = self._variable_args
             self._sampling_transforms = None
 
+    #
+    # Methods for initiating from a config file.
+    #
     @staticmethod
     def transforms_from_config(cp):
         """Gets sampling transforms specified in a config file."""
@@ -255,22 +264,29 @@ class BaseLikelihoodEvaluator(object):
                              prior_section="prior"):
         """Gets arguments and keyword arguments from a config file.
         """
+        # check that the name exists and matches
+        name = cp.get(section, 'name')
+        if name != cls.name:
+            raise ValueError("section's {} name does not match mine {}".format(
+                             name, cls.name))
+
         variable_args, static_args, constraints = read_args_from_config(cp)
         args = [variable_args]
+        kwargs = {'static_args': static_args}
 
         # get prior distribution for each variable parameter
         logging.info("Setting up priors for each parameter")
         dists = distributions.read_distributions_from_config(cp, prior_section)
         prior_eval = distributions.JointDistribution(variable_args, *dists,
                                           **{"constraints" : constraints})
-        kwargs = {'prior': prior_eval} 
+        kwargs['prior'] = prior_eval
         # get sampling transforms and any other keyword arguments provided
         kwargs.update(cls.transforms_from_config(cp))
         kwargs.update(cls.extra_args_from_config(cp, section=section)
         return args, kwargs
 
     @classmethod
-    def from_config(cls, cp, section="likelihood", prior_section="prior"
+    def from_config(cls, cp, section="likelihood", prior_section="prior",
                     **kwargs):
         """Initializes an instance of this class from the given config file.
 
@@ -287,20 +303,23 @@ class BaseLikelihoodEvaluator(object):
             All additional keyword arguments are passed to the class. Any
             provided keyword will over ride what is in the config file.
         """
-        # check that the name exists and matches
-        name = cp.get(section, 'name')
-        if name != cls.name:
-            raise ValueError("section's {} name does not match mine {}".format(
-                             name, cls.name))
-        args, cpkwargs = cls.get_args_from_config(cp, section=section,
+        args, clskwargs = cls.get_args_from_config(cp, section=section,
             prior_section=prior_section)
-        cpkwargs.update(kwargs)
-        return cls(*args, **cpkwargs)
+        clskwargs.update(kwargs)
+        return cls(*args, **clskwargs)
 
+    #
+    # Properties and methods
+    #
     @property
     def variable_args(self):
         """Returns the variable arguments."""
         return self._variable_args
+
+    @property
+    def static_args(self):
+        """Returns the static arguments."""
+        return self._static_args
 
     @property
     def sampling_args(self):
@@ -761,11 +780,11 @@ class DataBasedLikelihoodEvaluator(BaseLikelihoodEvaluator):
     ----------
     variable_args : (tuple of) string(s)
         A tuple of parameter names that will be varied.
-    waveform_generator : generator class
-        A generator class that creates waveforms.
     data : dict
         A dictionary of data, in which the keys are the detector names and the
         values are the data.
+    waveform_generator : generator class
+        A generator class that creates waveforms.
     waveform_transforms : list, optional
         List of transforms to use to go from the variable args to parameters
         understood by the waveform generator.
@@ -783,7 +802,7 @@ class DataBasedLikelihoodEvaluator(BaseLikelihoodEvaluator):
     For additional attributes and methods, see ``BaseLikelihoodEvaluator``.
     """
     name = None
-    def __init__(self, variable_args, waveform_generator=None, data=None,
+    def __init__(self, variable_args, data=None, waveform_generator=None,
                  waveform_transforms=None, **kwargs):
         # store data, waveform generator
         if waveform_generator is None:
@@ -808,7 +827,7 @@ class DataBasedLikelihoodEvaluator(BaseLikelihoodEvaluator):
         return self._data
 
     def _transform_params(self, params):
-        """Add waveform transforms to parent's ``_transform_params``."""
+        """Adds waveform transforms to parent's ``_transform_params``."""
         params = super(DataBasedLikelihoodEvaluator, self)._transform_params(
             params)
         # apply waveform transforms
@@ -832,6 +851,67 @@ class DataBasedLikelihoodEvaluator(BaseLikelihoodEvaluator):
                 transforms.read_transforms_from_config(cp,
                                                        'waveform_transforms')
         return args, kwargs
+
+    @classmethod
+    def from_config(cls, cp, data=None, delta_f=None, delta_t=None,
+                    gates=None, recalibration=None,
+                    section="likelihood", prior_section="prior",
+                    **kwargs):
+        """Initializes an instance of this class from the given config file.
+
+        Parameters
+        ----------
+        cp : WorkflowConfigParser
+            Config file parser to read.
+        data : dict
+            A dictionary of data, in which the keys are the detector names and
+            the values are the data. This is not retrieved from the config
+            file, and so must be provided.
+        delta_f : float
+            The frequency spacing of the data; needed for waveform generation.
+        delta_t : float
+            The time spacing of the data; needed for time-domain waveform
+            generators.
+        recalibration : dict of pycbc.calibration.Recalibrate, optional
+            Dictionary of detectors -> recalibration class instances for
+            recalibrating data.
+        gates : dict of tuples, optional
+            Dictionary of detectors -> tuples of specifying gate times. The
+            sort of thing returned by `pycbc.gate.gates_from_cli`.
+        section : str, optional
+            The section to read the arguments to the likelihood class from.
+            Default is 'likelihood'.
+        prior_section : str, optional
+            The section to read the prior arguments from. Default is 'prior'.
+        \**kwargs :
+            All additional keyword arguments are passed to the class. Any
+            provided keyword will over ride what is in the config file.
+        """
+        if data is None:
+            raise ValueError("must provide data")
+
+        args, clskwargs = cls.get_args_from_config(cp, section=section,
+            prior_section=prior_section)
+        clskwargs.update(kwargs)
+
+        variable_args = args[0]
+        static_args = clskwargs['static_args']
+
+        # set up waveform generator
+        try:
+            approximant = clskwargs['static_args']['approximant']
+        except KeyError:
+            raise ValueError("no approximant provided in the static args")
+        generator_function = generator.select_waveform_generator(approximant)
+        waveform_generator = generator.FDomainDetFrameGenerator(
+            generator_function, epoch=data.values()[0].start_time,
+            variable_args=variable_args, detectors=data.keys(),
+            delta_f=delta_f, delta_t=delta_t,
+            recalib=calibration_model, gates=gates,
+            **static_args)
+        clskwargs['waveform_generator']= waveform_generator
+
+        return cls(*args, **clskwargs)
 
 
 class GaussianLikelihood(DataBasedLikelihoodEvaluator):
@@ -1291,12 +1371,13 @@ likelihood_evaluators = {cls.name: cls for cls in (
 )}
 
 
-def read_from_config(cp, section="likelihood"):
+def read_from_config(cp, section="likelihood", **kwargs):
     """Initializes a LikelihoodEvaluator from the given config file.
     """
     # use the name to get the distribution
     name = cp.get(section, "name")
-    return likelihood_evaluators[name].from_config(cp, section=section)
+    return likelihood_evaluators[name].from_config(cp, section=section,
+        **kwargs)
 
 
 __all__ = ['BaseLikelihoodEvaluator',
