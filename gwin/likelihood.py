@@ -36,6 +36,11 @@ from pycbc.waveform import NoWaveformError
 from pycbc.types import Array
 from pycbc.io import FieldArray
 
+from gwin import option_utils
+# FIXME: import the following from pycbc.distributions once PR #2123 has made
+# it into a release of pycbc.
+from gwin.option_utils import read_args_from_config
+
 # Used to manage a likelihood instance across multiple cores or MPI
 _global_instance = None
 
@@ -166,8 +171,7 @@ class BaseLikelihoodEvaluator(object):
 
     def __init__(self, variable_args, prior=None,
                  sampling_parameters=None, replace_parameters=None,
-                 sampling_transforms=None,
-                 return_meta=True):
+                 sampling_transforms=None, return_meta=True):
         if isinstance(variable_args, basestring):
             variable_args = (variable_args,)
         if not isinstance(variable_args, tuple):
@@ -204,6 +208,94 @@ class BaseLikelihoodEvaluator(object):
         else:
             self._sampling_args = self._variable_args
             self._sampling_transforms = None
+
+    @staticmethod
+    def transforms_from_config(cp):
+        """Gets sampling transforms specified in a config file."""
+        # get sampling transformations
+        sampling_args = {}
+        if cp.has_section('sampling_parameters'):
+            sampling_parameters, replace_parameters = \
+                option_utils.read_sampling_args_from_config(cp)
+            sampling_transforms = transforms.read_transforms_from_config(cp,
+                'sampling_transforms')
+            logging.info("Sampling in {} in place of {}".format(
+                ', '.join(sampling_parameters), ', '.join(replace_parameters)))
+        else:
+            sampling_parameters = None
+            replace_parameters = None
+            sampling_transforms = None
+        sampling_args['sampling_parameters'] = sampling_parameters
+        sampling_args['replace_parameters'] = replace_parameters
+        sampling_args['sampling_transforms'] = sampling_transforms
+        return sampling_args
+
+    @staticmethod
+    def extra_args_from_config(cp, section="likelihood", dtypes=None):
+        """Gets any additional keyword in the given config file.
+        """
+        special_args = ['name']
+        kwargs = {}
+        if dtypes is None:
+            dtypes = {}
+        for opt in cp.options(section):
+            if opt in special_args:
+                continue
+            val = cp.get(section, opt)
+            # try to cast the value if a datatype was specified for this opt
+            try:
+                val = dtypes[opt](val)
+            except KeyError:
+                pass
+            kwargs[opt] = val
+        return kwargs
+
+    @classmethod
+    def get_args_from_config(cls, cp, section="likelihood",
+                             prior_section="prior"):
+        """Gets arguments and keyword arguments from a config file.
+        """
+        variable_args, static_args, constraints = read_args_from_config(cp)
+        args = [variable_args]
+
+        # get prior distribution for each variable parameter
+        logging.info("Setting up priors for each parameter")
+        dists = distributions.read_distributions_from_config(cp, prior_section)
+        prior_eval = distributions.JointDistribution(variable_args, *dists,
+                                          **{"constraints" : constraints})
+        kwargs = {'prior': prior_eval} 
+        # get sampling transforms and any other keyword arguments provided
+        kwargs.update(cls.transforms_from_config(cp))
+        kwargs.update(cls.extra_args_from_config(cp, section=section)
+        return args, kwargs
+
+    @classmethod
+    def from_config(cls, cp, section="likelihood", prior_section="prior"
+                    **kwargs):
+        """Initializes an instance of this class from the given config file.
+
+        Parameters
+        ----------
+        cp : WorkflowConfigParser
+            Config file parser to read.
+        section : str, optional
+            The section to read the arguments to the likelihood class from.
+            Default is 'likelihood'.
+        prior_section : str, optional
+            The section to read the prior arguments from. Default is 'prior'.
+        \**kwargs :
+            All additional keyword arguments are passed to the class. Any
+            provided keyword will over ride what is in the config file.
+        """
+        # check that the name exists and matches
+        name = cp.get(section, 'name')
+        if name != cls.name:
+            raise ValueError("section's {} name does not match mine {}".format(
+                             name, cls.name))
+        args, cpkwargs = cls.get_args_from_config(cp, section=section,
+            prior_section=prior_section)
+        cpkwargs.update(kwargs)
+        return cls(*args, **cpkwargs)
 
     @property
     def variable_args(self):
@@ -691,11 +783,15 @@ class DataBasedLikelihoodEvaluator(BaseLikelihoodEvaluator):
     For additional attributes and methods, see ``BaseLikelihoodEvaluator``.
     """
     name = None
-    def __init__(self, variable_args, waveform_generator, data,
+    def __init__(self, variable_args, waveform_generator=None, data=None,
                  waveform_transforms=None, **kwargs):
         # store data, waveform generator
+        if waveform_generator is None:
+            raise ValueError("must provide a waveform generator")
         self._waveform_generator = waveform_generator
         # we'll store a copy of the data
+        if data is None:
+            raise ValueError("must provide data")
         self._data = {ifo: d.copy() for ifo,d in data.items()}
         self._waveform_transforms = waveform_transforms
         super(DataBasedLikelihoodEvaluator, self).__init__(variable_args,
@@ -722,6 +818,20 @@ class DataBasedLikelihoodEvaluator(BaseLikelihoodEvaluator):
                                                  inverse=False)
         return params
 
+    @classmethod
+    def get_args_from_config(cls, cp, section="likelihood",
+                             prior_section="prior"):
+        # adds waveform transforms to the keyword arguments
+        # get waveform transformations
+        args, kwargs = \
+            super(DataBasedLikelihoodEvaluator, cls).get_args_from_config(cp,
+                section=section, prior_section=prior_section)
+        if any(cp.get_subsections('waveform_transforms')):
+            logging.info("Loading waveform transforms")
+            kwargs['waveform_transforms'] = \
+                transforms.read_transforms_from_config(cp,
+                                                       'waveform_transforms')
+        return args, kwargs
 
 
 class GaussianLikelihood(DataBasedLikelihoodEvaluator):
@@ -1179,6 +1289,15 @@ likelihood_evaluators = {cls.name: cls for cls in (
     GaussianLikelihood,
     MarginalizedPhaseGaussianLikelihood,
 )}
+
+
+def read_from_config(cp, section="likelihood"):
+    """Initializes a LikelihoodEvaluator from the given config file.
+    """
+    # use the name to get the distribution
+    name = cp.get(section, "name")
+    return likelihood_evaluators[name].from_config(cp, section=section)
+
 
 __all__ = ['BaseLikelihoodEvaluator',
            'TestNormal', 'TestEggbox', 'TestVolcano', 'TestRosenbrock',
