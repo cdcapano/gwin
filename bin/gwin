@@ -53,11 +53,6 @@ parser.add_argument("--psd-start-time", type=float, default=None,
 parser.add_argument("--psd-end-time", type=float, default=None,
                     help="End time to use for PSD estimation if different "
                          "from analysis.")
-
-# add inference options
-parser.add_argument("--likelihood-evaluator", required=True,
-                    choices=gwin.likelihood_evaluators.keys(),
-                    help="Evaluator class to use to calculate the likelihood.")
 parser.add_argument("--seed", type=int, default=0,
                     help="Seed to use for the random number generator that "
                          "initially distributes the walkers. Default is 0.")
