@@ -36,17 +36,98 @@ from pycbc.waveform import NoWaveformError
 from pycbc.types import Array
 from pycbc.io import FieldArray
 
-from gwin import option_utils
-# FIXME: import the following from pycbc.distributions once PR #2123 has made
-# it into a release of pycbc.
-from gwin.option_utils import read_args_from_config
-
 # Used to manage a likelihood instance across multiple cores or MPI
 _global_instance = None
 
-
 def _call_global_likelihood(*args, **kwds):
     return _global_instance(*args, **kwds)  # pylint:disable=not-callable
+
+
+# FIXME: import the following from pycbc.distributions once PR #2123 has made
+# it into a release of pycbc.
+def read_args_from_config(cp, section_group=None, prior_section='prior'):
+    """Given an open config file, loads the static and variable arguments to
+    use in the parameter estmation run.
+
+    Parameters
+    ----------
+    cp : WorkflowConfigParser
+        An open config parser to read from.
+    section_group : {None, str}
+        When reading the config file, only read from sections that begin with
+        `{section_group}_`. For example, if `section_group='foo'`, the
+        variable arguments will be retrieved from section
+        `[foo_variable_args]`. If None, no prefix will be appended to section
+        names.
+    prior_section : str, optional
+        Check that priors exist in the given section. Default is 'prior.'
+
+    Returns
+    -------
+    variable_args : list
+        The names of the parameters to vary in the PE run.
+    static_args : dict
+        Dictionary of names -> values giving the parameters to keep fixed.
+    """
+    logging.info("Loading arguments")
+    if section_group is not None:
+        section_prefix = '{}_'.format(section_group)
+    else:
+        section_prefix = ''
+
+    # sanity check that each parameter in [variable_args] has a priors section
+    variable_args = cp.options("{}variable_args".format(section_prefix))
+    subsections = cp.get_subsections("{}{}".format(section_prefix,
+                                                   prior_section))
+    tags = set([p for tag in subsections for p in tag.split('+')])
+    missing_prior = set(variable_args) - tags
+    if any(missing_prior):
+        raise KeyError("You are missing a priors section in the config file "
+                       "for parameter(s): {}".format(', '.join(missing_prior)))
+
+    # get parameters that do not change in sampler
+    try:
+        static_args = {
+            key: cp.get_opt_tags(
+                "{}static_args".format(section_prefix), key, [])
+            for key in cp.options("{}static_args".format(section_prefix))}
+    except ConfigParser.NoSectionError:
+        static_args = {}
+    # try converting values to float
+    for key, val in static_args.iteritems():
+        try:
+            # the following will raise a ValueError if it cannot be cast to
+            # float (as we would expect for string arguments)
+            static_args[key] = float(val)
+        except ValueError:
+            # try converting to a list of strings; this function will just
+            # return val if it does not begin (end) with [ (])
+            static_args[key] = convert_liststring_to_list(val)
+
+    # get additional constraints to apply in prior
+    cons = []
+    section = "{}constraint".format(section_prefix)
+    for subsection in cp.get_subsections(section):
+        name = cp.get_opt_tag(section, "name", subsection)
+        constraint_arg = cp.get_opt_tag(section, "constraint_arg", subsection)
+        kwargs = {}
+        for key in cp.options(section + "-" + subsection):
+            if key in ["name", "constraint_arg"]:
+                continue
+            val = cp.get_opt_tag(section, key, subsection)
+            if key == "required_parameters":
+                kwargs["required_parameters"] = val.split(
+                    bounded.VARARGS_DELIM)
+                continue
+            try:
+                val = float(val)
+            except ValueError:
+                pass
+            kwargs[key] = val
+        cons.append(constraints.constraints[name](variable_args,
+                                                  constraint_arg, **kwargs))
+
+    return variable_args, static_args, cons
 
 
 class _NoPrior(object):
@@ -225,7 +306,7 @@ class BaseLikelihoodEvaluator(object):
         sampling_args = {}
         if cp.has_section('sampling_parameters'):
             sampling_parameters, replace_parameters = \
-                option_utils.read_sampling_args_from_config(cp)
+                read_sampling_args_from_config(cp)
             sampling_transforms = transforms.read_transforms_from_config(cp,
                 'sampling_transforms')
             logging.info("Sampling in {} in place of {}".format(
@@ -282,7 +363,7 @@ class BaseLikelihoodEvaluator(object):
         kwargs['prior'] = prior_eval
         # get sampling transforms and any other keyword arguments provided
         kwargs.update(cls.transforms_from_config(cp))
-        kwargs.update(cls.extra_args_from_config(cp, section=section)
+        kwargs.update(cls.extra_args_from_config(cp, section=section))
         return args, kwargs
 
     @classmethod
@@ -1369,6 +1450,59 @@ likelihood_evaluators = {cls.name: cls for cls in (
     GaussianLikelihood,
     MarginalizedPhaseGaussianLikelihood,
 )}
+
+
+def read_sampling_args_from_config(cp, section_group=None,
+                                   section='sampling_parameters'):
+    """Reads sampling parameters from the given config file.
+
+    Parameters are read from the `[({section_group}_){section}]` section.
+    The options should list the variable args to transform; the parameters they
+    point to should list the parameters they are to be transformed to for
+    sampling. If a multiple parameters are transformed together, they should
+    be comma separated. Example:
+
+    .. code-block:: ini
+
+        [sampling_parameters]
+        mass1, mass2 = mchirp, logitq
+        spin1_a = logitspin1_a
+
+    Note that only the final sampling parameters should be listed, even if
+    multiple intermediate transforms are needed. (In the above example, a
+    transform is needed to go from mass1, mass2 to mchirp, q, then another one
+    needed to go from q to logitq.) These transforms should be specified
+    in separate sections; see `transforms.read_transforms_from_config` for
+    details.
+
+    Parameters
+    ----------
+    cp : WorkflowConfigParser
+        An open config parser to read from.
+    section_group : str, optional
+        Append `{section_group}_` to the section name. Default is None.
+    section : str, optional
+        The name of the section. Default is 'sampling_parameters'.
+
+    Returns
+    -------
+    sampling_params : list
+        The list of sampling parameters to use instead.
+    replaced_params : list
+        The list of variable args to replace in the sampler.
+    """
+    if section_group is not None:
+        section_prefix = '{}_'.format(section_group)
+    else:
+        section_prefix = ''
+    section = section_prefix + section
+    replaced_params = set()
+    sampling_params = set()
+    for args in cp.options(section):
+        map_args = cp.get(section, args)
+        sampling_params.update(set(map(str.strip, map_args.split(','))))
+        replaced_params.update(set(map(str.strip, args.split(','))))
+    return list(sampling_params), list(replaced_params)
 
 
 def read_from_config(cp, section="likelihood", **kwargs):
