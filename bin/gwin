@@ -185,9 +185,9 @@ likelihood_args = {}
 
 # get the data and psd
 strain_dict, stilde_dict, psd_dict = option_utils.data_from_cli(opts)
+low_frequency_cutoff_dict = option_utils.low_frequency_cutoff_from_cli(opts)
 if stilde_dict:
     likelihood_args['data'] = stilde_dict
-    low_frequency_cutoff_dict = option_utils.low_frequency_cutoff_from_cli(opts)
     likelihood_args['f_lower'] = low_frequency_cutoff_dict.values()[0]
     likelihood_args['psds'] = psd_dict
 
@@ -298,12 +298,12 @@ with ctx:
                 sampler.write_burn_in_iterations(fp, burnidx, is_burned_in)
                 # write the burn in results
                 logging.info("Writing burn in samples to file")
-                sampler.write_results(fp, static_args=static_args,
+                sampler.write_results(fp, static_args=likelihood.static_args,
                                       ifos=opts.instruments)
             # write to backup file
             with InferenceFile(backup_file, "a") as fp:
                 sampler.write_burn_in_iterations(fp, burnidx, is_burned_in)
-                sampler.write_results(fp, static_args=static_args,
+                sampler.write_results(fp, static_args=likelihood.static_args,
                                       ifos=opts.instruments)
 
 
@@ -354,7 +354,7 @@ with ctx:
         with InferenceFile(checkpoint_file, "a") as fp:
 
             logging.info("Writing results to file")
-            sampler.write_results(fp,static_args=static_args,
+            sampler.write_results(fp,static_args=likelihood.static_args,
                                   ifos=opts.instruments)
             logging.info("Updating burn in")
             burnidx, is_burned_in = burn_in_eval.update(sampler, fp)
@@ -371,7 +371,7 @@ with ctx:
         with InferenceFile(backup_file, "a") as fp:
 
             logging.info("Writing to backup file")
-            sampler.write_results(fp,static_args=static_args,
+            sampler.write_results(fp,static_args=likelihood.static_args,
                                   ifos=opts.instruments)
             sampler.write_burn_in_iterations(fp, burnidx, is_burned_in)
             if acls is not None:

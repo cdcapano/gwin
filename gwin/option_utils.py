@@ -297,7 +297,8 @@ def low_frequency_cutoff_from_cli(opts):
     # FIXME: this just uses the same frequency cutoff for every instrument for
     # now. We should allow for different frequency cutoffs to be used; that
     # will require (minor) changes to the Likelihood class
-    return {ifo: opts.low_frequency_cutoff for ifo in opts.instruments}
+    instruments = opts.instruments if opts.instruments is not None else []
+    return {ifo: opts.low_frequency_cutoff for ifo in instruments}
 
 
 def data_from_cli(opts):
@@ -324,7 +325,8 @@ def data_from_cli(opts):
     psd_gates = psd_gates_from_cli(opts)
 
     # get strain time series
-    strain_dict = strain_from_cli_multi_ifos(opts, opts.instruments,
+    instruments = opts.instruments if opts.instruments is not None else []
+    strain_dict = strain_from_cli_multi_ifos(opts, instruments,
                                              precision="double")
     # apply gates if not waiting to overwhiten
     if not opts.gate_overwhitened:
@@ -340,7 +342,7 @@ def data_from_cli(opts):
         psd_opts.gps_start_time = psd_opts.psd_start_time
         psd_opts.gps_end_time = psd_opts.psd_end_time
         psd_strain_dict = strain_from_cli_multi_ifos(psd_opts,
-                                                     opts.instruments,
+                                                     instruments,
                                                      precision="double")
         # apply any gates
         logging.info("Applying gates to PSD data")
@@ -358,7 +360,7 @@ def data_from_cli(opts):
     length_dict = {}
     delta_f_dict = {}
     low_frequency_cutoff_dict = low_frequency_cutoff_from_cli(opts)
-    for ifo in opts.instruments:
+    for ifo in instruments:
         stilde_dict[ifo] = strain_dict[ifo].to_frequencyseries()
         length_dict[ifo] = len(stilde_dict[ifo])
         delta_f_dict[ifo] = stilde_dict[ifo].delta_f
@@ -366,7 +368,7 @@ def data_from_cli(opts):
     # get PSD as frequency series
     psd_dict = psd_from_cli_multi_ifos(
         opts, length_dict, delta_f_dict, low_frequency_cutoff_dict,
-        opts.instruments, strain_dict=psd_strain_dict, precision="double")
+        instruments, strain_dict=psd_strain_dict, precision="double")
 
     # apply any gates to overwhitened data, if desired
     if opts.gate_overwhitened and opts.gate is not None:

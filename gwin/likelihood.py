@@ -28,10 +28,11 @@ for parameter estimation.
 """
 
 import numpy
+import logging
 
 from scipy import (stats, special)
 
-from pycbc import (conversions, filter, transforms)
+from pycbc import (conversions, filter, transforms, distributions)
 from pycbc.waveform import NoWaveformError
 from pycbc.types import Array
 from pycbc.io import FieldArray
@@ -45,6 +46,7 @@ def _call_global_likelihood(*args, **kwds):
 
 # FIXME: import the following from pycbc.distributions once PR #2123 has made
 # it into a release of pycbc.
+from pycbc.workflow import ConfigParser
 def read_args_from_config(cp, section_group=None, prior_section='prior'):
     """Given an open config file, loads the static and variable arguments to
     use in the parameter estmation run.
