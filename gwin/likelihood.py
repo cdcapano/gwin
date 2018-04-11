@@ -33,7 +33,7 @@ import logging
 from scipy import (stats, special)
 
 from pycbc import (conversions, filter, transforms, distributions)
-from pycbc.waveform import NoWaveformError
+from pycbc.waveform import (generator, NoWaveformError)
 from pycbc.types import Array
 from pycbc.io import FieldArray
 
@@ -47,6 +47,21 @@ def _call_global_likelihood(*args, **kwds):
 # FIXME: import the following from pycbc.distributions once PR #2123 has made
 # it into a release of pycbc.
 from pycbc.workflow import ConfigParser
+def convert_liststring_to_list(lstring):
+    """Checks if an argument of the configuration file is a string of a list
+    and returns the corresponding list (of strings).
+
+    The argument is considered to be a list if it starts with '[' and ends
+    with ']'. List elements should be comma separated. For example, passing
+    `'[foo bar, cat]'` will result in `['foo bar', 'cat']` being returned. If
+    the argument does not start and end with '[' and ']', the argument will
+    just be returned as is.
+    """
+    if lstring[0] == '[' and lstring[-1] == ']':
+        lstring = [str(lstring[1:-1].split(',')[n].strip().strip("'")) for
+                   n in range(len(lstring[1:-1].split(',')))]
+    return lstring
+
 def read_args_from_config(cp, section_group=None, prior_section='prior'):
     """Given an open config file, loads the static and variable arguments to
     use in the parameter estmation run.
@@ -353,19 +368,18 @@ class BaseLikelihoodEvaluator(object):
                              name, cls.name))
 
         variable_args, static_args, constraints = read_args_from_config(cp)
-        args = [variable_args]
-        kwargs = {'static_args': static_args}
+        args = {'variable_args': variable_args, 'static_args': static_args}
 
         # get prior distribution for each variable parameter
         logging.info("Setting up priors for each parameter")
         dists = distributions.read_distributions_from_config(cp, prior_section)
         prior_eval = distributions.JointDistribution(variable_args, *dists,
                                           **{"constraints" : constraints})
-        kwargs['prior'] = prior_eval
+        args['prior'] = prior_eval
         # get sampling transforms and any other keyword arguments provided
-        kwargs.update(cls.transforms_from_config(cp))
-        kwargs.update(cls.extra_args_from_config(cp, section=section))
-        return args, kwargs
+        args.update(cls.transforms_from_config(cp))
+        args.update(cls.extra_args_from_config(cp, section=section))
+        return args
 
     @classmethod
     def from_config(cls, cp, section="likelihood", prior_section="prior",
@@ -385,10 +399,10 @@ class BaseLikelihoodEvaluator(object):
             All additional keyword arguments are passed to the class. Any
             provided keyword will over ride what is in the config file.
         """
-        args, clskwargs = cls.get_args_from_config(cp, section=section,
-            prior_section=prior_section)
-        clskwargs.update(kwargs)
-        return cls(*args, **clskwargs)
+        args = cls.get_args_from_config(cp, section=section,
+                                        prior_section=prior_section)
+        args.update(kwargs)
+        return cls(**args)
 
     #
     # Properties and methods
@@ -884,16 +898,11 @@ class DataBasedLikelihoodEvaluator(BaseLikelihoodEvaluator):
     For additional attributes and methods, see ``BaseLikelihoodEvaluator``.
     """
     name = None
-    def __init__(self, variable_args, data=None, waveform_generator=None,
+    def __init__(self, variable_args, data, waveform_generator,
                  waveform_transforms=None, **kwargs):
-        # store data, waveform generator
-        if waveform_generator is None:
-            raise ValueError("must provide a waveform generator")
-        self._waveform_generator = waveform_generator
         # we'll store a copy of the data
-        if data is None:
-            raise ValueError("must provide data")
         self._data = {ifo: d.copy() for ifo,d in data.items()}
+        self._waveform_generator = waveform_generator
         self._waveform_transforms = waveform_transforms
         super(DataBasedLikelihoodEvaluator, self).__init__(variable_args,
             **kwargs)
@@ -922,20 +931,18 @@ class DataBasedLikelihoodEvaluator(BaseLikelihoodEvaluator):
     @classmethod
     def get_args_from_config(cls, cp, section="likelihood",
                              prior_section="prior"):
-        # adds waveform transforms to the keyword arguments
-        # get waveform transformations
-        args, kwargs = \
-            super(DataBasedLikelihoodEvaluator, cls).get_args_from_config(cp,
-                section=section, prior_section=prior_section)
+        # adds waveform transforms to the arguments
+        args = super(DataBasedLikelihoodEvaluator, cls).get_args_from_config(
+            cp, section=section, prior_section=prior_section)
         if any(cp.get_subsections('waveform_transforms')):
             logging.info("Loading waveform transforms")
-            kwargs['waveform_transforms'] = \
+            args['waveform_transforms'] = \
                 transforms.read_transforms_from_config(cp,
                                                        'waveform_transforms')
-        return args, kwargs
+        return args
 
     @classmethod
-    def from_config(cls, cp, data=None, delta_f=None, delta_t=None,
+    def from_config(cls, cp, data, delta_f=None, delta_t=None,
                     gates=None, recalibration=None,
                     section="likelihood", prior_section="prior",
                     **kwargs):
@@ -972,16 +979,20 @@ class DataBasedLikelihoodEvaluator(BaseLikelihoodEvaluator):
         if data is None:
             raise ValueError("must provide data")
 
-        args, clskwargs = cls.get_args_from_config(cp, section=section,
+        args = cls.get_args_from_config(cp, section=section,
             prior_section=prior_section)
-        clskwargs.update(kwargs)
+        args['data'] = data
+        args.update(kwargs)
 
-        variable_args = args[0]
-        static_args = clskwargs['static_args']
+        variable_args = args['variable_args']
+        try:
+            static_args = args['static_args']
+        except KeyError:
+            static_args = {}
 
         # set up waveform generator
         try:
-            approximant = clskwargs['static_args']['approximant']
+            approximant = static_args['approximant']
         except KeyError:
             raise ValueError("no approximant provided in the static args")
         generator_function = generator.select_waveform_generator(approximant)
@@ -989,11 +1000,11 @@ class DataBasedLikelihoodEvaluator(BaseLikelihoodEvaluator):
             generator_function, epoch=data.values()[0].start_time,
             variable_args=variable_args, detectors=data.keys(),
             delta_f=delta_f, delta_t=delta_t,
-            recalib=calibration_model, gates=gates,
+            recalib=recalibration, gates=gates,
             **static_args)
-        clskwargs['waveform_generator']= waveform_generator
+        args['waveform_generator'] = waveform_generator
 
-        return cls(*args, **clskwargs)
+        return cls(**args)
 
 
 class GaussianLikelihood(DataBasedLikelihoodEvaluator):
@@ -1161,14 +1172,13 @@ class GaussianLikelihood(DataBasedLikelihoodEvaluator):
     """
     name = 'gaussian'
 
-    def __init__(self, variable_args, waveform_generator, data,
+    def __init__(self, variable_args, data, waveform_generator,
                  f_lower, psds=None, f_upper=None, norm=None,
                  **kwargs):
         # set up the boiler-plate attributes; note: we'll compute the
         # log evidence later
-        super(GaussianLikelihood, self).__init__(
-            variable_args, waveform_generator, data,
-            **kwargs)
+        super(GaussianLikelihood, self).__init__(variable_args, data,
+            waveform_generator, **kwargs)
         # check that the data and waveform generator have the same detectors
         if (sorted(waveform_generator.detectors.keys()) !=
                 sorted(self._data.keys())):
