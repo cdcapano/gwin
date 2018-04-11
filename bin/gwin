@@ -189,6 +189,8 @@ low_frequency_cutoff_dict = option_utils.low_frequency_cutoff_from_cli(opts)
 if stilde_dict:
     likelihood_args['data'] = stilde_dict
     likelihood_args['f_lower'] = low_frequency_cutoff_dict.values()[0]
+    likelihood_args['delta_f'] = stilde_dict.values()[0].delta_f
+    likelihood_args['delta_t'] = strain_dict.values()[0].delta_t
     likelihood_args['psds'] = psd_dict
 
 with ctx:
