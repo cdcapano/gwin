@@ -252,7 +252,6 @@ class BaseLikelihoodEvaluator(object):
         Set the function to use when the class is called as a function.
     """
     name = None
-    required_kwargs = []
 
     def __init__(self, variable_args, static_args=None, prior=None,
                  sampling_parameters=None, replace_parameters=None,
@@ -1161,7 +1160,6 @@ class GaussianLikelihood(DataBasedLikelihoodEvaluator):
     ArrayWithAligned(0.9162907318741418)
     """
     name = 'gaussian'
-    required_kwargs = ['waveform_generator', 'data', 'f_lower']
 
     def __init__(self, variable_args, waveform_generator, data,
                  f_lower, psds=None, f_upper=None, norm=None,
