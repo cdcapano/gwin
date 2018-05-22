@@ -40,6 +40,9 @@ TEST_CONFIGURATION = """
 a = 1
 b = 2
 
+[likelihood]
+name = gaussian
+
 [variable_args]
 mass1 =
 mass2 =
