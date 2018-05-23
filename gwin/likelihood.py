@@ -1119,7 +1119,7 @@ class GaussianLikelihood(DataBasedLikelihoodEvaluator):
     >>> psd = pypsd.aLIGOZeroDetHighPower(N, 1./seglen, 20.)
     >>> psds = {'H1': psd, 'L1': psd}
     >>> likelihood_eval = gwin.GaussianLikelihood(
-            ['tc'], generator, signal, fmin, psds=psds, return_meta=False)
+            ['tc'], signal, generator, fmin, psds=psds, return_meta=False)
 
     Now compute the log likelihood ratio and prior-weighted likelihood ratio;
     since we have not provided a prior, these should be equal to each other:
@@ -1139,7 +1139,7 @@ class GaussianLikelihood(DataBasedLikelihoodEvaluator):
 
     Compute the SNR; for this system and PSD, this should be approximately 24:
 
-    >>> likelihood_eval.snr([tsig])
+    >>> likelihood_eval.snr(tc=tsig)
     ArrayWithAligned(23.576660187517593)
 
     Using the same likelihood evaluator, evaluate the log prior-weighted
@@ -1161,13 +1161,13 @@ class GaussianLikelihood(DataBasedLikelihoodEvaluator):
 
     >>> from pycbc import distributions
     >>> uniform_prior = distributions.Uniform(tc=(tsig-0.2,tsig+0.2))
-    >>> prior_eval = gwin.JointDistribution(['tc'], uniform_prior)
-    >>> likelihood_eval = gwin.GaussianLikelihood(
-            generator, signal, 20., psds=psds, prior=prior_eval,
+    >>> prior = distributions.JointDistribution(['tc'], uniform_prior)
+    >>> likelihood_eval = gwin.GaussianLikelihood(['tc'],
+            signal, generator, 20., psds=psds, prior=prior,
             return_meta=False)
-    >>> likelihood_eval.logplr([tsig])
+    >>> likelihood_eval.logplr(tc=tsig)
     ArrayWithAligned(278.84574353071264)
-    >>> likelihood_eval.logposterior([tsig])
+    >>> likelihood_eval.logposterior(tc=tsig)
     ArrayWithAligned(0.9162907318741418)
     """
     name = 'gaussian'
