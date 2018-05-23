@@ -130,7 +130,7 @@ def test_read_sampling_args_from_config(config, prefix, out1, out2):
     spars, rpars = likelihood.read_sampling_args_from_config(
         config, section_group=prefix)
     assert spars == list(out1)
-assert rpars == list(out2)
+    assert rpars == list(out2)
 
 
 def test_add_sampler_option_group(capsys):
