@@ -36,6 +36,7 @@ from pycbc import (conversions, filter, transforms, distributions)
 from pycbc.waveform import (generator, NoWaveformError)
 from pycbc.types import Array
 from pycbc.io import FieldArray
+from pycbc.workflow import ConfigParser
 
 # Used to manage a likelihood instance across multiple cores or MPI
 _global_instance = None
@@ -44,9 +45,8 @@ def _call_global_likelihood(*args, **kwds):
     return _global_instance(*args, **kwds)  # pylint:disable=not-callable
 
 
-# FIXME: import the following from pycbc.distributions once PR #2123 has made
+# XXX: import the following from pycbc.distributions once PR #2123 has made
 # it into a release of pycbc.
-from pycbc.workflow import ConfigParser
 def convert_liststring_to_list(lstring):
     """Checks if an argument of the configuration file is a string of a list
     and returns the corresponding list (of strings).
@@ -61,6 +61,7 @@ def convert_liststring_to_list(lstring):
         lstring = [str(lstring[1:-1].split(',')[n].strip().strip("'")) for
                    n in range(len(lstring[1:-1].split(',')))]
     return lstring
+
 
 def read_args_from_config(cp, section_group=None, prior_section='prior'):
     """Given an open config file, loads the static and variable arguments to
@@ -323,8 +324,8 @@ class BaseLikelihoodEvaluator(object):
         if cp.has_section('sampling_parameters'):
             sampling_parameters, replace_parameters = \
                 read_sampling_args_from_config(cp)
-            sampling_transforms = transforms.read_transforms_from_config(cp,
-                'sampling_transforms')
+            sampling_transforms = transforms.read_transforms_from_config(
+                cp, 'sampling_transforms')
             logging.info("Sampling in {} in place of {}".format(
                 ', '.join(sampling_parameters), ', '.join(replace_parameters)))
         else:
@@ -373,8 +374,8 @@ class BaseLikelihoodEvaluator(object):
         # get prior distribution for each variable parameter
         logging.info("Setting up priors for each parameter")
         dists = distributions.read_distributions_from_config(cp, prior_section)
-        prior_eval = distributions.JointDistribution(variable_args, *dists,
-                                          **{"constraints" : constraints})
+        prior_eval = distributions.JointDistribution(
+            variable_args, *dists, **{"constraints": constraints})
         args['prior'] = prior_eval
         # get sampling transforms and any other keyword arguments provided
         args.update(cls.transforms_from_config(cp))
@@ -898,14 +899,15 @@ class DataBasedLikelihoodEvaluator(BaseLikelihoodEvaluator):
     For additional attributes and methods, see ``BaseLikelihoodEvaluator``.
     """
     name = None
+
     def __init__(self, variable_args, data, waveform_generator,
                  waveform_transforms=None, **kwargs):
         # we'll store a copy of the data
-        self._data = {ifo: d.copy() for ifo,d in data.items()}
+        self._data = {ifo: d.copy() for (ifo, d) in data.items()}
         self._waveform_generator = waveform_generator
         self._waveform_transforms = waveform_transforms
-        super(DataBasedLikelihoodEvaluator, self).__init__(variable_args,
-            **kwargs)
+        super(DataBasedLikelihoodEvaluator, self).__init__(
+            variable_args, **kwargs)
 
     @property
     def waveform_generator(self):
@@ -980,7 +982,7 @@ class DataBasedLikelihoodEvaluator(BaseLikelihoodEvaluator):
             raise ValueError("must provide data")
 
         args = cls.get_args_from_config(cp, section=section,
-            prior_section=prior_section)
+                                        prior_section=prior_section)
         args['data'] = data
         args.update(kwargs)
 
@@ -1178,7 +1180,7 @@ class GaussianLikelihood(DataBasedLikelihoodEvaluator):
         # set up the boiler-plate attributes; note: we'll compute the
         # log evidence later
         super(GaussianLikelihood, self).__init__(variable_args, data,
-            waveform_generator, **kwargs)
+                                                 waveform_generator, **kwargs)
         # check that the data and waveform generator have the same detectors
         if (sorted(waveform_generator.detectors.keys()) !=
                 sorted(self._data.keys())):
@@ -1520,8 +1522,8 @@ def read_from_config(cp, section="likelihood", **kwargs):
     """
     # use the name to get the distribution
     name = cp.get(section, "name")
-    return likelihood_evaluators[name].from_config(cp, section=section,
-        **kwargs)
+    return likelihood_evaluators[name].from_config(
+        cp, section=section, **kwargs)
 
 
 __all__ = ['BaseLikelihoodEvaluator',
