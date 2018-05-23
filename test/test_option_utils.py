@@ -29,6 +29,7 @@ from gwin import option_utils
 from gwin.io.hdf import InferenceFile
 from gwin.io.txt import InferenceTXTFile
 from gwin.sampler import samplers as SAMPLERS
+from gwin import likelihood
 
 from utils import mock
 from utils.core import tempfile_with_content
@@ -118,6 +119,18 @@ def test_config_parser_from_cli(overrides):
     assert config.getint('test', 'a') == 1
     for sec, opt, val in overrides:
         assert config.get(sec, opt) == val
+
+
+@pytest.mark.parametrize('prefix, out1, out2', [
+    (None, {'logitspin1_a', 'mchirp', 'logitq'},
+     {'mass1', 'mass2', 'spin1_a'}),
+    ('test', {'c', 'd'}, {'a', 'b'}),
+])
+def test_read_sampling_args_from_config(config, prefix, out1, out2):
+    spars, rpars = likelihood.read_sampling_args_from_config(
+        config, section_group=prefix)
+    assert spars == list(out1)
+assert rpars == list(out2)
 
 
 def test_add_sampler_option_group(capsys):
