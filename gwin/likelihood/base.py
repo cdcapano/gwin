@@ -34,15 +34,6 @@ from pycbc.waveform import generator
 from pycbc.io import FieldArray
 from pycbc.workflow import ConfigParser
 
-# Used to manage a likelihood instance across multiple cores or MPI
-_global_instance = None
-
-
-def _call_global_likelihood(*args, **kwds):
-    """Private function for global likelihood (needed for parallelization)."""
-    return _global_instance(*args, **kwds)  # pylint:disable=not-callable
-
-
 class _NoPrior(object):
     """Dummy class to just return 0 if no prior is provided in a
     likelihood generator.

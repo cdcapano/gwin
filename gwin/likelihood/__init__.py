@@ -25,6 +25,15 @@ from .gaussian_noise import (GaussianLikelihood,
                              MarginalizedPhaseGaussianLikelihood)
 
 
+# Used to manage a likelihood instance across multiple cores or MPI
+_global_instance = None
+
+
+def _call_global_likelihood(*args, **kwds):
+    """Private function for global likelihood (needed for parallelization)."""
+    return _global_instance(*args, **kwds)  # pylint:disable=not-callable
+
+
 def read_from_config(cp, section="likelihood", **kwargs):
     """Initializes a ``LikelihoodEvaluator`` from the given config file.
 
