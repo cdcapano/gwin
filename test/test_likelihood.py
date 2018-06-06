@@ -37,7 +37,7 @@ class TestNoPrior(object):
 
 
 class TestBaseLikelihoodEvaluator(_TestBase):
-    TEST_CLASS = gwin_likelihood.BaseLikelihoodEvaluator
+    TEST_CLASS = gwin_likelihood.base.BaseLikelihoodEvaluator
 
     @classmethod
     def setup_class(cls):
