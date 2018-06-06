@@ -216,8 +216,32 @@ class BaseLikelihoodEvaluator(object):
     # Methods for initiating from a config file.
     #
     @staticmethod
-    def transforms_from_config(cp):
-        """Gets sampling transforms specified in a config file."""
+    def sampling_transforms_from_config(cp):
+        """Gets sampling transforms specified in a config file.
+
+        Sampling parameters and the parameters they replace are read from the
+        ``sampling_parameters`` section, if it exists. Sampling transforms are
+        read from the ``sampling_transforms`` section(s), using
+        ``transforms.read_transforms_from_config``.
+
+        If no ``sampling_parameters`` section exists in the config file, then
+        no sampling sampling transforms will be returned, even if
+        ``sampling_transforms`` sections do exist in the config file.
+        
+        Parameters
+        ----------
+        cp : WorkflowConfigParser
+            Config file parser to read.
+
+        Returns
+        -------
+        dict
+            A dictionary of keyword arguments giving the
+            ``sampling_parameters``, ``replace_parameters``, and
+            ``sampling_transforms`` that were read from the config file. If
+            no ``sampling_parameters`` section exists in the config file, these
+            will all map to ``None``.
+        """
         # get sampling transformations
         sampling_args = {}
         if cp.has_section('sampling_parameters'):
@@ -237,16 +261,36 @@ class BaseLikelihoodEvaluator(object):
         return sampling_args
 
     @staticmethod
-    def extra_args_from_config(cp, section="likelihood", dtypes=None):
+    def extra_args_from_config(cp, section, skip_args=None, dtypes=None):
         """Gets any additional keyword in the given config file.
+
+        Parameters
+        ----------
+        cp : WorkflowConfigParser
+            Config file parser to read.
+        section : str
+            The name of the section to read.
+        skip_args : list of str, optional
+            Names of arguments to skip.
+        dtypes : dict, optional
+            A dictionary of arguments -> data types. If an argument is found
+            in the dict, it will be cast to the given datatype. Otherwise, the
+            argument's value will just be read from the config file (and thus
+            be a string).
+
+        Returns
+        -------
+        dict
+            Dictionary of keyword arguments read from the config file.
         """
-        special_args = ['name']
         kwargs = {}
         if dtypes is None:
             dtypes = {}
-        for opt in cp.options(section):
-            if opt in special_args:
-                continue
+        if skip_args is None:
+            skip_args = []
+        read_args = [opt for opt in cp.options(section)
+            if opt not in skip_args]
+        for opt in read_args:
             val = cp.get(section, opt)
             # try to cast the value if a datatype was specified for this opt
             try:
@@ -260,6 +304,21 @@ class BaseLikelihoodEvaluator(object):
     def get_args_from_config(cls, cp, section="likelihood",
                              prior_section="prior"):
         """Gets arguments and keyword arguments from a config file.
+
+        Parameters
+        ----------
+        cp : WorkflowConfigParser
+            Config file parser to read.
+        section : str, optional
+            Section to read from. Default is 'likelihood'.
+        prior_section : str, optional
+            Section(s) to read prior(s) from. Default is 'prior'.
+
+        Returns
+        -------
+        dict
+            A dctionary of keyword arguments giving the ``variable_args``,
+            ``static_args``, and ``prior`` class.
         """
         # check that the name exists and matches
         name = cp.get(section, 'name')
@@ -278,8 +337,9 @@ class BaseLikelihoodEvaluator(object):
             variable_args, *dists, **{"constraints": constraints})
         args['prior'] = prior_eval
         # get sampling transforms and any other keyword arguments provided
-        args.update(cls.transforms_from_config(cp))
-        args.update(cls.extra_args_from_config(cp, section=section))
+        args.update(cls.sampling_transforms_from_config(cp))
+        args.update(cls.extra_args_from_config(cp, section,
+                                               skip_args=['name']))
         return args
 
     @classmethod
@@ -1384,7 +1444,7 @@ def read_sampling_args_from_config(cp, section_group=None,
     multiple intermediate transforms are needed. (In the above example, a
     transform is needed to go from mass1, mass2 to mchirp, q, then another one
     needed to go from q to logitq.) These transforms should be specified
-    in separate sections; see `transforms.read_transforms_from_config` for
+    in separate sections; see ``transforms.read_transforms_from_config`` for
     details.
 
     Parameters
