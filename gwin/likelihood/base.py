@@ -34,6 +34,7 @@ from pycbc.waveform import generator
 from pycbc.io import FieldArray
 from pycbc.workflow import ConfigParser
 
+
 class _NoPrior(object):
     """Dummy class to just return 0 if no prior is provided in a
     likelihood generator.
@@ -90,11 +91,11 @@ class BaseLikelihoodEvaluator(object):
             \sum_i \left[\log p(\Theta|d_i) - \log p(n|d_i)\right]
 
     This class provides boiler-plate methods and attributes for evaluating the
-    log likelihood ratio, log prior, and log likelihood. This class
-    makes no assumption about the detectors' noise model :math:`n`. As such,
-    the methods for computing these values raise ``NotImplementedErrors``. These
-    functions need to be monkey patched, or other classes that inherit from
-    this class need to define their own functions.
+    log likelihood ratio, log prior, and log likelihood. This class makes no
+    assumption about the detectors' noise model :math:`n`. As such, the methods
+    for computing these values raise ``NotImplementedErrors``. These functions
+    need to be monkey patched, or other classes that inherit from this class
+    need to define their own functions.
 
     Instances of this class can be called like a function. The default is for
     this class to call its ``logposterior`` function, but this can be changed

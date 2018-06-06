@@ -135,11 +135,11 @@ class TestRosenbrock(BaseLikelihoodEvaluator):
     def loglikelihood(self, **params):
         """Returns the log pdf of the Rosenbrock function.
         """
-        l = 0
+        logl = 0
         p = [params[p] for p in self.variable_args]
         for i in range(len(p) - 1):
-            l -= ((1 - p[i])**2 + 100 * (p[i+1] - p[i]**2)**2)
-        return l
+            logl -= ((1 - p[i])**2 + 100 * (p[i+1] - p[i]**2)**2)
+        return logl
 
 
 class TestVolcano(BaseLikelihoodEvaluator):

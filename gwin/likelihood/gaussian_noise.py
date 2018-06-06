@@ -26,6 +26,7 @@ from pycbc.types import Array
 
 from .base import DataBasedLikelihoodEvaluator
 
+
 class GaussianLikelihood(DataBasedLikelihoodEvaluator):
     r"""Computes log likelihoods assuming the detectors' noise is Gaussian.
 
@@ -469,5 +470,3 @@ class MarginalizedPhaseGaussianLikelihood(GaussianLikelihood):
             hd += self.data[det][self._kmin:kmax].inner(h[self._kmin:kmax])
         hd = abs(hd)
         return numpy.log(special.i0e(hd)) + hd - 0.5*hh
-
-

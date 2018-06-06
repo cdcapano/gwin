@@ -69,5 +69,3 @@ likelihood_evaluators = {_cls.name: _cls for _cls in (
     GaussianLikelihood,
     MarginalizedPhaseGaussianLikelihood,
 )}
-
-
