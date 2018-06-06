@@ -227,7 +227,7 @@ class BaseLikelihoodEvaluator(object):
         If no ``sampling_parameters`` section exists in the config file, then
         no sampling sampling transforms will be returned, even if
         ``sampling_transforms`` sections do exist in the config file.
-        
+
         Parameters
         ----------
         cp : WorkflowConfigParser
@@ -289,7 +289,7 @@ class BaseLikelihoodEvaluator(object):
         if skip_args is None:
             skip_args = []
         read_args = [opt for opt in cp.options(section)
-            if opt not in skip_args]
+                     if opt not in skip_args]
         for opt in read_args:
             val = cp.get(section, opt)
             # try to cast the value if a datatype was specified for this opt
