@@ -41,6 +41,7 @@ from pycbc.workflow import ConfigParser
 # Used to manage a likelihood instance across multiple cores or MPI
 _global_instance = None
 
+
 def _call_global_likelihood(*args, **kwds):
     """Private function for global likelihood (needed for parallelization)."""
     return _global_instance(*args, **kwds)  # pylint:disable=not-callable
