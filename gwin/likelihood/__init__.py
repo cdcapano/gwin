@@ -20,7 +20,7 @@ assuming various noise models.
 """
 
 
-from .test_models import (TestEggbox, TestNormal, TestRosenbrock, TestVolcano)
+from .analytic import (TestEggbox, TestNormal, TestRosenbrock, TestVolcano)
 from .gaussian_noise import (GaussianLikelihood,
                              MarginalizedPhaseGaussianLikelihood)
 
