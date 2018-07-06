@@ -26,7 +26,7 @@ import shutil
 import numpy
 
 import pycbc
-from pycbc import (calibration, distributions, transforms, fft, gate,
+from pycbc import (distributions, transforms, fft, gate,
                    opt, psd, scheme, strain, weave)
 from pycbc.waveform import generator
 
@@ -201,7 +201,7 @@ with ctx:
     # get ifo-specific instances of calibration model
     if cp.has_section('calibration'):
         logging.info("Initializing calibration model")
-        recalib = {ifo : calibration.read_model_from_config(cp, ifo) for
+        recalib = {ifo : strain.read_model_from_config(cp, ifo) for
                    ifo in opts.instruments}
         likelihood_args['recalib'] = recalib
 
