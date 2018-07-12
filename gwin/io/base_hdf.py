@@ -41,7 +41,6 @@ from pycbc.waveform import parameters as wfparams
 
 from .. import sampler as gwin_sampler
 
-
 class BaseInferenceFile(h5py.File):
     """ A subclass of the h5py.File object that has extra functions for
     handling reading and writing the samples from the samplers.
@@ -92,6 +91,43 @@ class BaseInferenceFile(h5py.File):
         """
         pass
 
+    def parse_parameters(self, parameters, array_class=None):
+        """Parses a parameters arg to figure out what fields need to be loaded.
+
+        Parameters
+        ----------
+        parameters : (list of) strings
+            The parameter(s) to retrieve. A parameter can be the name of any
+            field in ``samples_group``, a virtual field or method of
+            ``FieldArray`` (as long as the file contains the necessary fields
+            to derive the virtual field or method), and/or a function of
+            these.
+        array_class : array class, optional
+            The type of array to use to parse the parameters. The class must have a
+            ``parse_parameters`` method. Default is to use a ``FieldArray``.
+
+        Returns
+        -------
+        list :
+            A list of strings giving the fields to load from the file.
+        """
+        # get the type of array class to use
+        if array_class is None:
+            array_class = FieldArray
+        # get the names of fields needed for the given parameters
+        possible_fields = self[self.samples_group].keys()
+        return array_class.parse_parameters(parameters, possible_fields)
+
+    def _parse_parameters(self, parameters, **kwargs):
+        """Decorator function for read samples that calls parse parameters.
+        """
+        array_class = kwargs.pop('array_class', None)
+        def dostuff(parameters, **kwargs):
+            parameters = self.parse_parameters(parameters, array_class)
+            return self.read_samples(parameters, **kwargs)
+        return dostuff
+
+    @_parse_parameters
     @abstractmethod
     def read_samples(self, parameters, **kwargs):
         """This should read the requested parameters.
