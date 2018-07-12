@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Christopher M. Biwer
+# Copyright (C) 2016 Christopher M. Biwer, Collin Capano
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the
 # Free Software Foundation; either version 3 of the License, or (at your
@@ -28,6 +28,7 @@ inference samplers generate.
 import os
 import sys
 import logging
+from abc import ABCMeta
 
 import numpy
 
@@ -41,64 +42,7 @@ from pycbc.waveform import parameters as wfparams
 from .. import sampler as gwin_sampler
 
 
-class _PosteriorOnlyParser(object):
-    """Provides interface for reading/writing samples from/to an InferenceFile
-    that contains flattened posterior samples.
-    """
-    @staticmethod
-    def _read_fields(fp, fields_group, fields, array_class,
-                     thin_start=None, thin_interval=None, thin_end=None,
-                     iteration=None):
-        """Reads fields from the given file.
-        """
-        if iteration is not None:
-            get_index = iteration
-        else:
-            get_index = fp.get_slice(thin_start=thin_start, thin_end=thin_end,
-                                     thin_interval=thin_interval)
-        # load
-        arrays = {}
-        group = fields_group + '/{}'
-        arrays = {field: fp[group.format(field)][get_index]
-                  for field in fields}
-        return array_class.from_kwargs(**arrays)
-
-    @classmethod
-    def read_samples(cls, fp, parameters, samples_group=None,
-                     thin_start=0, thin_end=None, thin_interval=1,
-                     iteration=None, array_class=None):
-        """Reads posterior samples from a posterior-only file.
-        """
-        # get the group to load from
-        if samples_group is None:
-            samples_group = fp.samples_group
-        # get the type of array class to use
-        if array_class is None:
-            array_class = FieldArray
-        # get the names of fields needed for the given parameters
-        possible_fields = fp[samples_group].keys()
-        loadfields = array_class.parse_parameters(parameters, possible_fields)
-        return cls._read_fields(fp, samples_group, loadfields, array_class,
-                                thin_start=thin_start,
-                                thin_interval=thin_interval, thin_end=thin_end,
-                                iteration=iteration)
-
-    @staticmethod
-    def write_samples_group(fp, samples_group, fields, samples):
-        """Writes the given samples to the given samples group.
-        """
-        for field in samples.fieldnames:
-            grp = '{}/{}'.format(samples_group, field)
-            fp[grp] = samples[field]
-
-    @classmethod
-    def n_independent_samples(cls, fp):
-        """Returns the number of independent samples stored in the file.
-        """
-        return cls.read_samples(fp, fp.variable_params[0]).size
-
-
-class InferenceFile(h5py.File):
+class BaseInferenceFile(h5py.File):
     """ A subclass of the h5py.File object that has extra functions for
     handling reading and writing the samples from the samplers.
 
@@ -109,27 +53,80 @@ class InferenceFile(h5py.File):
     mode : {None, str}
         The mode to open the file, eg. "w" for write and "r" for read.
     """
-    name = "hdf"
+    __metaclass__ = ABCMeta
+
+    name = None
     samples_group = 'samples'
-    stats_group = 'model_stats'
-    sampler_group = 'sampler_states'
+    sampler_group = 'sampler_info'
+    data_group = 'data'
+    injections_group = 'injections'
 
     def __init__(self, path, mode=None, **kwargs):
         super(InferenceFile, self).__init__(path, mode, **kwargs)
 
-    @property
-    def posterior_only(self):
-        """Whether the file only contains flattened posterior samples.
+    def __getattr__(self, attr):
+        """Things stored in ``.attrs`` are promoted to instance attributes.
+        
+        Note that properties will be called before this, so if there are any
+        properties that share the same name as something in ``.attrs``, that
+        property will get returned.
         """
-        try:
-            return self.attrs['posterior_only']
-        except KeyError:
-            return False
+        return self.attrs[attr]
 
-    @property
-    def sampler_name(self):
-        """Returns the name of the sampler that was used."""
-        return self.attrs["sampler"]
+    @abstractmethod
+    def write_samples(self, samples, **kwargs):
+        """This should write all of the provided samples.
+
+        This function should be used to write both samples and model stats.
+
+        Parameters
+        ----------
+        fp : open hdf file
+            The file to write to.
+        samples : structure array-like
+            Samples should be provided as a numpy structure array or a
+            FieldArray (basically, anything for which ``samples['param']`` will
+            return a numpy array).
+        \**kwargs :
+            Any other keyword args the sampler needs to write data.
+        """
+        pass
+
+    @abstractmethod
+    def read_samples(self, parameters, **kwargs):
+        """This should read the requested parameters.
+
+        The samples should be returned as a ``FieldArray``.
+
+        Parameters
+        ----------
+        fp : open hdf file
+            The file to read from.
+        parameters : list of str
+            List of the parameters to return. May include functions.
+        \**kwargs :
+            Any other keyword args the sampler needs to read data.
+
+        Returns
+        -------
+        FieldArray :
+            The samples as a FieldArray.
+        """
+        pass
+
+    @abstractmethod
+    def write_posterior(self, posterior_fp, **kwargs):
+        """This should write a posterior plus any other metadata to the given
+        file.
+
+        Parameters
+        ----------
+        posterior_fp : open hdf file
+            The file to write to.
+        \**kwargs :
+            Any other keyword args the sampler needs to write the posterior.
+        """
+        pass
 
     @property
     def sampler_class(self):
@@ -141,30 +138,6 @@ class InferenceFile(h5py.File):
         return gwin_sampler.samplers[sampler]
 
     @property
-    def samples_parser(self):
-        """Returns the class to use to read/write samples from/to the file."""
-        if self.posterior_only:
-            return _PosteriorOnlyParser
-        else:
-            return self.sampler_class
-
-    @property
-    def model_name(self):
-        """Returns the name of the model that was used."""
-        return self.attrs["model"]
-
-    @property
-    def variable_params(self):
-        """Returns list of variable_params.
-
-        Returns
-        -------
-        variable_params : {list, str}
-            List of str that contain variable_params keys.
-        """
-        return self.attrs["variable_params"]
-
-    @property
     def static_params(self):
         """Returns a dictionary of the static_params. The keys are the argument
         names, values are the value they were set to.
@@ -172,76 +145,13 @@ class InferenceFile(h5py.File):
         return {arg: self.attrs[arg] for arg in self.attrs["static_params"]}
 
     @property
-    def sampling_params(self):
-        """Returns the parameters that were used to sample.
-
-        Returns
-        -------
-        sampling_params : {list, str}
-            List of the sampling params.
-        """
-        return self.attrs["sampling_params"]
-
-    @property
-    def lognl(self):
-        """Returns the log noise likelihood."""
-        return self.attrs["lognl"]
-
-    @property
-    def niterations(self):
-        """Returns number of iterations performed.
-
-        Returns
-        -------
-        niterations : int
-            Number of iterations performed.
-        """
-        return self.attrs["niterations"]
-
-    @property
     def n_independent_samples(self):
         """Returns the number of independent samples stored in the file.
         """
-        return self.samples_parser.n_independent_samples(self)
-
-    @property
-    def burn_in_iterations(self):
-        """Returns number of iterations in the burn in.
-        """
-        return self.attrs["burn_in_iterations"]
-
-    @property
-    def is_burned_in(self):
-        """Returns whether or not the sampler is burned in.
-        """
-        return self.attrs["is_burned_in"]
-
-    @property
-    def nwalkers(self):
-        """Returns number of walkers used.
-
-        Returns
-        -------
-        nwalkesr : int
-            Number of walkers used.
-        """
-        return self.attrs["nwalkers"]
-
-    @property
-    def ntemps(self):
-        """Returns number of temperatures used."""
-        return self.attrs["ntemps"]
-
-    @property
-    def acl(self):
-        """ Returns the saved autocorelation length (ACL).
-
-        Returns
-        -------
-        acl : {int, float}
-            The ACL.
-        """
-        return self.attrs["acl"]
+        try:
+            return self.attrs['n_independent_samples']
+        except KeyError:
+            return 0
 
     @property
     def cmd(self):
@@ -260,21 +170,54 @@ class InferenceFile(h5py.File):
             cmd = cmd[-1]
         return cmd
 
-    @property
-    def resume_points(self):
-        """The iterations at which a run was resumed from checkpoint.
+    def write_metadata(self, sampler, **kwargs):
+        """Writes the sampler's metadata.
 
-        Returns
-        -------
-        resume_points : array or None
-            An array of integers giving the points at which the run resumed.
-
-        Raises
-        ------
-        KeyError
-            If the run never resumed from a checkpoint.
+        Parameters
+        ----------
+        sampler : gwin.sampler
+            An instance of a gwin sampler.
+        **kwargs :
+            All keyword arguments are saved as separate arguments in the
+            file attrs. If any keyword argument is a dictionary, the keyword
+            will point to the list of keys in the the file's ``attrs``. Each
+            key is then stored as a separate attr with its corresponding value.
         """
-        return self.attrs['resume_points']
+        self.attrs['sampler'] = samlper.name
+        self.attrs['model'] = sampler.model.name
+        self.attrs['variable_params'] = list(sampler.variable_params)
+        self.attrs['sampling_params'] = list(sampler.sampling_params)
+        # FIXME: what will write this?
+        #fp.attrs["lognl"] = self.model.lognl
+        # add the static params to the kwargs
+        kwargs['static_params'] = sampler.static_params
+        for arg, val in kwargs.items():
+            if val is None:
+                val = str(None)
+            if isinstance(val, dict):
+                self.attrs[arg] = val.keys()
+                for key, item in val.items():
+                    if item is None:
+                        item = str(None)
+                    self.attrs[key] = item
+            else:
+                self.attrs[arg] = val
+
+    def write_logevidence(self, lnz, dlnz):
+        """Writes the given log evidence and its error.
+
+        Results are saved to file's 'log_evidence' and 'dlog_evidence'
+        attributes.
+
+        Parameters
+        ----------
+        lnz : float
+            The log of the evidence.
+        dlnz : float
+            The error in the estimate of the log evidence.
+        """
+        self.attrs['log_evidence'] = lnz
+        self.attrs['dlog_evidence'] = dlnz
 
     @property
     def log_evidence(self):
@@ -283,115 +226,37 @@ class InferenceFile(h5py.File):
         """
         return self.attrs["log_evidence"], self.attrs["dlog_evidence"]
 
-    def read_samples(self, parameters, samples_group=None, **kwargs):
-        """Reads samples from the file.
+    def write_random_state(self, group=None, state=None):
+        """Writes the state of the random number generator from the file.
 
-        Parameters
-        -----------
-        parameters : (list of) strings
-            The parameter(s) to retrieve. A parameter can be the name of any
-            field in `samples_group`, a virtual field or method of
-            `FieldArray` (as long as the file contains the necessary fields
-            to derive the virtual field or method), and/or a function of
-            these.
-        samples_group : str
-            Group in HDF InferenceFile that parameters belong to.
-        **kwargs :
-            The rest of the keyword args are passed to the sampler's
-            `read_samples` method.
-
-        Returns
-        -------
-        FieldArray
-            Samples for the given parameters, as an instance of a
-            FieldArray.
-        """
-        # get the appropriate sampler class
-        samples_group = samples_group if samples_group else self.samples_group
-        return self.samples_parser.read_samples(self, parameters,
-                                                samples_group=samples_group,
-                                                **kwargs)
-
-    def read_model_stats(self, **kwargs):
-        """Reads model stats from self.
-
-        Parameters
-        -----------
-        **kwargs :
-            The keyword args are passed to the sampler's
-            ``read_model_stats`` method.
-
-        Returns
-        -------
-        stats : {FieldArray, None}
-            Likelihood stats in the file, as a FieldArray. The fields of the
-            array are the names of the stats that are in the ``model_stats``
-            group.
-        """
-        parameters = self[self.stats_group].keys()
-        return self.read_samples(parameters, samples_group=self.stats_group,
-                                 **kwargs)
-
-    def read_acceptance_fraction(self, **kwargs):
-        """Returns the acceptance fraction that was written to the file.
+        The random state is written to ``sampler_group``/random_state.
 
         Parameters
         ----------
-        **kwargs :
-            All keyword arguments are passed to the sampler's
-            `read_acceptance_fraction` function.
-        Returns
-        -------
-        numpy.array
-            The acceptance fraction.
+        group : str
+            Name of group to write random state to.
+        state : tuple, optional
+            Specify the random state to write. If None, will use
+            ``numpy.random.get_state()``.
         """
-        return self.sampler_class.read_acceptance_fraction(self, **kwargs)
-
-    def read_acls(self):
-        """Returns all of the individual chains' acls. See the `read_acls`
-        function of this file's sampler for more details.
-        """
-        return self.sampler_class.read_acls(self)
-
-    def read_label(self, parameter, error_on_none=False):
-        """Returns the label for the parameter.
-
-        Parameters
-        -----------
-        parameter : str
-            Name of parameter to get a label for. Will first try to retrieve
-            a label from this file's "label" attributes. If the parameter
-            is not found there, will look for a label from
-            pycbc.waveform.parameters.
-        error_on_none : {False, bool}
-            If True, will raise a ValueError if a label cannot be found, or if
-            the label is None. Otherwise, the parameter will just be returned
-            if no label can be found.
-
-        Returns
-        -------
-        label : str
-            A formatted string for the name of the paramter.
-        """
-        # get label
-        try:
-            label = self[parameter].attrs["label"]
-        except KeyError:
-            # try looking in pycbc.waveform.parameters
-            try:
-                label = getattr(wfparams, parameter).label
-            except AttributeError:
-                label = None
-        if label is None:
-            if error_on_none:
-                raise ValueError("Cannot find a label for paramter %s" % (
-                    parameter))
-            else:
-                return parameter
-        return label
+        group = self.sampler_group if group is None else group
+        dataset_name = "/".join([group, "random_state"])
+        if state is None:
+            state = numpy.random.get_state()
+        s, arr, pos, has_gauss, cached_gauss = state
+        if group in self:
+            self[dataset_name][:] = arr
+        else:
+            self.create_dataset(dataset_name, arr.shape, fletcher32=True,
+                                dtype=arr.dtype)
+            self[dataset_name][:] = arr
+        self[dataset_name].attrs["s"] = s
+        self[dataset_name].attrs["pos"] = pos
+        self[dataset_name].attrs["has_gauss"] = has_gauss
+        self[dataset_name].attrs["cached_gauss"] = cached_gauss
 
     def read_random_state(self, group=None):
-        """ Reads the state of the random number generator from the file.
+        """Reads the state of the random number generator from the file.
 
         Parameters
         ----------
@@ -412,6 +277,11 @@ class InferenceFile(h5py.File):
         cached_gauss = self[dataset_name].attrs["cached_gauss"]
         return s, arr, pos, has_gauss, cached_gauss
 
+    def load_random_state(self):
+        """Sets numpy's random state using what is saved in the file.
+        """
+        numpy.random.set_state(self.read_random_state())
+
     def write_strain(self, strain_dict, group=None):
         """Writes strain for each IFO to file.
 
@@ -423,7 +293,7 @@ class InferenceFile(h5py.File):
             The group to write the strain to. If None, will write to the top
             level.
         """
-        subgroup = "{ifo}/strain"
+        subgroup = self.data_group + "/{ifo}/strain"
         if group is None:
             group = subgroup
         else:
@@ -445,7 +315,7 @@ class InferenceFile(h5py.File):
             The group to write the strain to. If None, will write to the top
             level.
         """
-        subgroup = "{ifo}/stilde"
+        subgroup = self.data_group + "/{ifo}/stilde"
         if group is None:
             group = subgroup
         else:
@@ -469,7 +339,7 @@ class InferenceFile(h5py.File):
             The group to write the strain to. If None, will write to the top
             level.
         """
-        subgroup = "{ifo}/psds/0"
+        subgroup = self.data_group + "/{ifo}/psds/0"
         if group is None:
             group = subgroup
         else:
@@ -522,24 +392,19 @@ class InferenceFile(h5py.File):
         if strain_dict is not None:
             self.write_strain(strain_dict, group=group)
 
-    def write_injections(self, injection_file, ifo):
-        """ Writes injection parameters for an IFO to file.
+    def write_injections(self, injection_file):
+        """Writes injection parameters from the given injection file.
+
+        Everything in the injection file is copied to ``injections_group``.
 
         Parameters
         ----------
         injection_file : str
             Path to HDF injection file.
-        ifo : str
-            IFO name.
         """
-        subgroup = "{ifo}/injections"
-        self.create_group(subgroup.format(ifo=ifo))
         try:
             with h5py.File(injection_file, "r") as fp:
-                for param in fp.keys():
-                    self[subgroup.format(ifo=ifo)][param] = fp[param][:]
-                for key in fp.attrs.keys():
-                    self[subgroup.format(ifo=ifo)].attrs[key] = fp.attrs[key]
+                super(BaseInferenceFile, self).copy(fp, self.injections_group)
         except IOError:
             logging.warn("Could not read %s as an HDF file", injection_file)
 
@@ -562,47 +427,6 @@ class InferenceFile(h5py.File):
         except KeyError:
             previous = []
         self.attrs["cmd"] = cmd + previous
-
-    def write_resume_point(self):
-        """Keeps a list of the number of iterations that were in a file when a
-        run was resumed from a checkpoint."""
-        try:
-            resume_pts = self.attrs["resume_points"].tolist()
-        except KeyError:
-            resume_pts = []
-        try:
-            niterations = self.niterations
-        except KeyError:
-            niterations = 0
-        resume_pts.append(niterations)
-        self.attrs["resume_points"] = resume_pts
-
-    def write_random_state(self, group=None, state=None):
-        """ Writes the state of the random number generator from the file.
-
-        Parameters
-        ----------
-        group : str
-            Name of group to read random state to.
-        state : tuple, optional
-            Specify the random state to write. If None, will use
-            ``numpy.random.get_state()``.
-        """
-        group = self.sampler_group if group is None else group
-        dataset_name = "/".join([group, "random_state"])
-        if state is None:
-            state = numpy.random.get_state()
-        s, arr, pos, has_gauss, cached_gauss = state
-        if group in self:
-            self[dataset_name][:] = arr
-        else:
-            self.create_dataset(dataset_name, arr.shape, fletcher32=True,
-                                dtype=arr.dtype)
-            self[dataset_name][:] = arr
-        self[dataset_name].attrs["s"] = s
-        self[dataset_name].attrs["pos"] = pos
-        self[dataset_name].attrs["has_gauss"] = has_gauss
-        self[dataset_name].attrs["cached_gauss"] = cached_gauss
 
     def get_slice(self, thin_start=None, thin_interval=None, thin_end=None):
         """Formats a slice using the given arguments that can be used to
@@ -651,8 +475,7 @@ class InferenceFile(h5py.File):
     def copy_metadata(self, other):
         """Copies all metadata from this file to the other file.
 
-        Metadata is defined as all data that is not in either the samples or
-        stats group.
+        Metadata is defined as everything in the top-level ``.attrs``.
 
         Parameters
         ----------
@@ -660,20 +483,74 @@ class InferenceFile(h5py.File):
             An open inference file to write the data to.
         """
         logging.info("Copying metadata")
-        # copy non-samples/stats data
-        for key in self.keys():
-            if key not in [self.samples_group, self.stats_group]:
-                super(InferenceFile, self).copy(key, other)
         # copy attributes
         for key in self.attrs.keys():
             other.attrs[key] = self.attrs[key]
 
-    def copy(self, other, parameters=None, parameter_names=None,
-             posterior_only=False, **kwargs):
-        """Copies data in this file to another file.
+    def copy_info(self, other, ignore=None):
+        """Copies "info" from this file to the other.
 
-        The samples and stats to copy may be down selected using the given
-        kwargs. All other data (the "metadata") are copied exactly.
+        "Info" is defined all groups that are not the samples group.
+
+        Parameters
+        ----------
+        other : output file
+            The output file. Must be an hdf file.
+        ignore : (list of) str
+            Don't copy the given groups.
+        """
+        logging.info("Copying info")
+        # copy non-samples/stats data
+        if ignore is None:
+            ignore = []
+        if isinstance(ignore, (str, unicode)):
+            ignore = [ignore]
+        ignore = set(ignore + [self.samples_group])
+        copy_groups = set(self.keys()) - ignore
+        for key in copy_groups:
+            super(BaseInferenceFile, self).copy(key, other)
+
+    def copy_samples(self, other, parameters=None, parameter_names=None,
+                     read_args=None, write_args=None):
+        """Should copy samples to the other files.
+
+        Parameters
+        ----------
+        other : InferenceFile
+            An open inference file to write to.
+        parameters : list of str, optional
+            List of parameters to copy. If None, will copy all parameters.
+        parameter_names : dict, optional
+            Rename one or more parameters to the given name. The dictionary
+            should map parameter -> parameter name. If None, will just use the
+            original parameter names.
+        read_args : dict, optional
+            Arguments to pass to ``read_samples``.
+        write_args : dict, optional
+            Arguments to pass to ``write_samples``.
+        """
+        # select the samples to copy
+        logging.info("Reading samples to copy")
+        if parameters is None:
+            parameters = self.variable_params
+        # if list of desired parameters is different, rename
+        if set(parameters) != set(self.variable_params):
+            other.attrs['variable_params'] = parameters
+        samples = self.read_samples(parameters, **read_args)
+        logging.info("Copying {} samples".format(samples.size))
+        # if different parameter names are desired, get them from the samples
+        if parameter_names:
+            arrs = {pname: samples[p] for p, pname in parameter_names.items()}
+            arrs.update({p: samples[p] for p in parameters if
+                         p not in parameter_names})
+            samples = FieldArray.from_kwargs(**arrs)
+            other.attrs['variable_params'] = samples.fieldnames
+        logging.info("Writing samples")
+        other.write_samples(other, samples, **write_args)
+
+    def copy(self, other, ignore=None, parameters=None, parameter_names=None,
+             read_args=None, write_args=None):
+        """Copies metadata, info, and samples in this file to another file.
 
         Parameters
         ----------
@@ -682,21 +559,20 @@ class InferenceFile(h5py.File):
             or an open hdf file. If the former, the file will be opened with
             the write attribute (note that if a file already exists with that
             name, it will be deleted).
+        ignore : (list of) strings
+            Don't copy the given groups. If the samples group is included, no
+            samples will be copied.
         parameters : list of str, optional
-            List of parameters to copy. If None, will copy all parameters.
+            List of parameters in the samples group to copy. If None, will copy
+            all parameters.
         parameter_names : dict, optional
             Rename one or more parameters to the given name. The dictionary
             should map parameter -> parameter name. If None, will just use the
             original parameter names.
-        posterior_only : bool, optional
-            Write the samples and model stats as flattened arrays, and
-            set other's posterior_only attribute. For example, if this file
-            has a parameter's samples written to
-            `{samples_group}/{param}/walker{x}`, then other will have all of
-            the selected samples from all walkers written to
-            `{samples_group}/{param}/`.
-        **kwargs :
-            All other keyword arguments are passed to `read_samples`.
+        read_args : dict, optional
+            Arguments to pass to ``read_samples``.
+        write_args : dict, optional
+            Arguments to pass to ``write_samples``.
 
         Returns
         -------
@@ -708,48 +584,29 @@ class InferenceFile(h5py.File):
             if other == self.name:
                 raise IOError("destination is the same as this file")
             other = InferenceFile(other, 'w')
-        # copy metadata over
+        # metadata
         self.copy_metadata(other)
-        # update other's posterior attribute
-        if posterior_only:
-            other.attrs['posterior_only'] = posterior_only
-        # select the samples to copy
-        logging.info("Reading samples to copy")
-        if parameters is None:
-            parameters = self.variable_params
-        # if list of desired parameters is different, rename model params
-        if set(parameters) != set(self.variable_params):
-            other.attrs['variable_params'] = parameters
-        # if only the posterior is desired, we'll flatten the results
-        if not posterior_only and not self.posterior_only:
-            kwargs['flatten'] = False
-        samples = self.read_samples(parameters, **kwargs)
-        logging.info("Copying {} samples".format(samples.size))
-        # if different parameter names are desired, get them from the samples
-        if parameter_names:
-            arrs = {pname: samples[p] for p, pname in parameter_names.items()}
-            arrs.update({p: samples[p] for p in parameters if
-                         p not in parameter_names})
-            samples = FieldArray.from_kwargs(**arrs)
-            other.attrs['variable_params'] = samples.fieldnames
-        logging.info("Writing samples")
-        other.samples_parser.write_samples_group(other, self.samples_group,
-                                                 samples.fieldnames, samples)
-        # do the same for the model stats
-        logging.info("Reading stats to copy")
-        stats = self.read_model_stats(**kwargs)
-        logging.info("Writing stats")
-        other.samples_parser.write_samples_group(other, self.stats_group,
-                                                 stats.fieldnames, stats)
+        # info
+        if ignore is None:
+            ignore = []
+        if isinstance(ignore, (str, unicode)):
+            ignore = [ignore]
+        self.copy_info(other, ignore=ignore)
+        # samples
+        if self.samples_group not in ignore:
+            self.copy_samples(other, parameters=parameters,
+                              parameter_names=parameter_names,
+                              read_args=read_args,
+                              write_args=write_args)
         # if any down selection was done, re-set the burn in iterations and
         # the acl, and the niterations.
         # The last dimension of the samples returned by the sampler should
         # be the number of iterations.
-        if samples.shape[-1] != self.niterations:
-            other.attrs['acl'] = 1
-            other.attrs['burn_in_iterations'] = 0
-            other.attrs['niterations'] = samples.shape[-1]
-        return other
+        #if samples.shape[-1] != self.niterations:
+        #    other.attrs['acl'] = 1
+        #    other.attrs['burn_in_iterations'] = 0
+        #    other.attrs['niterations'] = samples.shape[-1]
+        #return other
 
 
 def check_integrity(filename):
