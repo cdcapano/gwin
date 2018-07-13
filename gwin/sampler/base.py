@@ -25,7 +25,7 @@
 Defines the base sampler class to be inherited by all samplers.
 """
 
-from abc import ABCMeta
+from abc import ABCMeta, abstractmethod, abstractproperty
 import numpy
 from pycbc.io import FieldArray
 from pycbc.filter import autocorrelation
@@ -102,58 +102,12 @@ class BaseSampler(object):
         """
         pass
 
-    @abstractmethod
-    def write_samples(cls, fp, samples, group="samples", **kwargs):
-        """This should write all of the provided samples to the given hdf file.
-
-        This function should be used to write both samples and model stats.
-
-        Parameters
-        ----------
-        fp : open hdf file
-            The file to write to.
-        samples : structure array-like
-            Samples should be provided as a numpy structure array or a
-            FieldArray (basically, anything for which ``samples['param']`` will
-            return a numpy array).
-        group : str, optional
-            The group in ``fp`` to write the ``samples`` to. Default is
-            "samples".
-        \**kwargs :
-            Any other keyword args the sampler needs to write data.
-        """
-        pass
-
-    @abstractmethod
-    def read_samples(cls, fp, parameters, group="samples", **kwargs):
-        """This should read the requested parameters from the given hdf file.
-
-        The samples should be returned as a ``FieldArray``.
-
-        Parameters
-        ----------
-        fp : open hdf file
-            The file to read from.
-        parameters : list of str
-            List of the parameters to return. May include functions.
-        group : str, optional
-            The group in ``fp`` to read the ``samples`` from. Default is
-            "samples".
-        \**kwargs :
-            Any other keyword args the sampler needs to read data.
-        """
-        pass
-
-    @abstractmethod
-    def write_posterior(cls, posterior_fp, **kwargs):
-        """This should write a posterior plus any other metadata to the given
-        file.
-
-        Parameters
-        ----------
-        posterior_fp : open hdf file
-            The file to write to.
-        \**kwargs :
-            Any other keyword args the sampler needs to write the posterior.
+    @abstractproperty
+    def io(self):
+        """A class that inherits from ``BaseInferenceFile`` to handle IO with
+        an hdf file.
+        
+        This should be a class, not an instance of class, so that the sampler
+        can initialize it when needed.
         """
         pass
