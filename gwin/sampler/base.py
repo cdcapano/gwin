@@ -81,16 +81,20 @@ class BaseSampler(object):
         return self.model.static_params
 
     @abstractproperty
-    def samples(self):
-        """Should return all of the samples currently stored in memory as a
-        numpy structure array or FieldArray.
+    def raw_samples(self):
+        """A dict mapping sampling_params to arrays of samples currently
+        in memory.
+        
+        The sample arrays may have any shape, and may or may not be thinned.
         """
         pass
 
     @abstractproperty
     def model_stats(self):
-        """Should return all of the model's metadata currently stored in
-        memory as a numpy structure array or FieldArray.
+        """A dict mapping model's metadata fields to arrays of values for
+        each sample in ``raw_samples``.
+
+        The arrays may have any shape, and may or may not be thinned.
         """
         pass
 
@@ -109,5 +113,12 @@ class BaseSampler(object):
         
         This should be a class, not an instance of class, so that the sampler
         can initialize it when needed.
+        """
+        pass
+
+    @abstractmethod
+    def checkpoint(self):
+        """The sampler must have a checkpoint method for dumping raw samples
+        and stats to the file type defined by ``io``.
         """
         pass
