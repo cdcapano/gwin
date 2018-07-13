@@ -28,7 +28,7 @@ inference samplers generate.
 import os
 import sys
 import logging
-from abc import ABCMeta
+from abc import ABCMeta, abstractmethod, abstractproperty
 
 import numpy
 
@@ -42,7 +42,9 @@ from pycbc.waveform import parameters as wfparams
 from .. import sampler as gwin_sampler
 
 class BaseInferenceFile(h5py.File):
-    """ A subclass of the h5py.File object that has extra functions for
+    """Base class for all inference hdf files.
+    
+    This is a subclass of the h5py.File object. It adds functions for
     handling reading and writing the samples from the samplers.
 
     Parameters
@@ -61,7 +63,7 @@ class BaseInferenceFile(h5py.File):
     injections_group = 'injections'
 
     def __init__(self, path, mode=None, **kwargs):
-        super(InferenceFile, self).__init__(path, mode, **kwargs)
+        super(BaseInferenceFile, self).__init__(path, mode, **kwargs)
 
     def __getattr__(self, attr):
         """Things stored in ``.attrs`` are promoted to instance attributes.
@@ -82,10 +84,8 @@ class BaseInferenceFile(h5py.File):
         ----------
         fp : open hdf file
             The file to write to.
-        samples : structure array-like
-            Samples should be provided as a numpy structure array or a
-            FieldArray (basically, anything for which ``samples['param']`` will
-            return a numpy array).
+        samples : dict
+            Samples should be provided as a dictionary of numpy arrays.
         \**kwargs :
             Any other keyword args the sampler needs to write data.
         """
@@ -118,35 +118,58 @@ class BaseInferenceFile(h5py.File):
         possible_fields = self[self.samples_group].keys()
         return array_class.parse_parameters(parameters, possible_fields)
 
-    def _parse_parameters(self, parameters, **kwargs):
-        """Decorator function for read samples that calls parse parameters.
-        """
-        array_class = kwargs.pop('array_class', None)
-        def dostuff(parameters, **kwargs):
-            parameters = self.parse_parameters(parameters, array_class)
-            return self.read_samples(parameters, **kwargs)
-        return dostuff
+    def read_samples(self, parameters, array_class=None, **kwargs):
+        """Reads samples for the given parameter(s).
 
-    @_parse_parameters
-    @abstractmethod
-    def read_samples(self, parameters, **kwargs):
-        """This should read the requested parameters.
+        The ``parameters`` can be the name of any dataset in ``samples_group``,
+        a virtual field or method of ``FieldArray`` (as long as the file
+        contains the necessary fields to derive the virtual field or method),
+        and/or any numpy function of these.
 
-        The samples should be returned as a ``FieldArray``.
+        The ``parameters`` are parsed to figure out what datasets are needed.
+        Only those datasets will be loaded, and will be the base-level fields
+        of the returned ``FieldArray``.
+
+        The ``static_params`` are also added as attributes of the returned
+        ``FieldArray``.
 
         Parameters
-        ----------
-        fp : open hdf file
-            The file to read from.
-        parameters : list of str
-            List of the parameters to return. May include functions.
+        -----------
+        fp : InferenceFile
+            An open file handler to read the samples from.
+        parameters : (list of) strings
+            The parameter(s) to retrieve.
+        array_class : FieldArray-like class, optional
+            The type of array to return. The class must have ``from_kwargs``
+            and ``parse_parameters`` methods. If None, will return a
+            ``FieldArray``.
         \**kwargs :
-            Any other keyword args the sampler needs to read data.
+            All other keyword arguments are passed to ``_read_samples_data``.
 
         Returns
         -------
         FieldArray :
-            The samples as a FieldArray.
+            The samples as a ``FieldArray``.
+        """
+        # get the type of array class to use
+        if array_class is None:
+            array_class = FieldArray
+        # get the names of fields needed for the given parameters
+        possible_fields = self[self.samples_group].keys()
+        loadfields = array_class.parse_parameters(parameters, possible_fields)
+        samples = self._read_samples_data(loadfields, **kwargs)
+        # convert to FieldArray
+        samples = array_class.from_kwargs(**samples)
+        # add the static params
+        for p,val in self.static_params.items():
+            setattr(samples, p, val)
+        return samples
+
+    @abstractmethod
+    def _read_samples_data(self, fields, **kwargs):
+        """Low level function for reading datasets in the samples group.
+
+        This should return a dictionary of numpy arrays.
         """
         pass
 
