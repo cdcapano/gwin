@@ -41,7 +41,8 @@ from pycbc.waveform import parameters as wfparams
 from .hdf import InferenceFile
 
 class EnsembleMCMCIO(obect):
-
+    """Abstract base class that provides some IO functions for ensemble MCMCs.
+    """
     __metaclass__ = ABCMeta
 
     @abstractmethod
@@ -74,15 +75,11 @@ class EnsembleMCMCIO(obect):
 
         Parameters
         -----------
-        fp : InferenceFile
-            A file handler to an open inference file.
-        samples_group : str
-            Name of samples group to write.
         parameters : list
             The parameters to write to the file.
-        samples : FieldArray
-            The samples to write. Should be a FieldArray with fields containing
-            the samples to write and shape nwalkers x niterations.
+        samples : dict
+            The samples to write. Each array in the dictionary should have
+            shape nwalkers x niterations.
         start_iteration : int, optional
             Write results to the file's datasets starting at the given
             iteration. Default is to append after the last iteration in the
@@ -93,11 +90,14 @@ class EnsembleMCMCIO(obect):
             to file. The default (None) is to use the maximum size allowed by
             h5py.
         """
-        nwalkers, niterations = samples.shape
+        nwalkers, niterations = samples.values()[0].shape
+        assert(all(p.shape == (nwalkers, niterations)
+                   for p in samples.values()),
+               "all samples must have the same shape")
         if max_iterations is not None and max_iterations < niterations:
             raise IndexError("The provided max size is less than the "
                              "number of iterations")
-        group = samples_group + '/{name}'
+        group = self.samples_group + '/{name}'
         # loop over number of dimensions
         for param in parameters:
             dataset_name = group.format(name=param)
@@ -122,96 +122,21 @@ class EnsembleMCMCIO(obect):
                                   dtype=float, fletcher32=True)
             fp[dataset_name][:, istart:istop] = samples[param]
 
-    def read_samples(self, parameters,
-                     thin_start=None, thin_interval=None, thin_end=None,
-                     iteration=None, walkers=None, flatten=True,
-                     array_class=None):
-        """Reads samples for the given parameter(s).
+    def _read_samples_data(self, fields,
+                           thin_start=None, thin_interval=None, thin_end=None,
+                           iteration=None, walkers=None, flatten=True):
+        """Base function for reading samples.
 
         Parameters
         -----------
-        fp : InferenceFile
-            An open file handler to read the samples from.
-        parameters : (list of) strings
-            The parameter(s) to retrieve. A parameter can be the name of any
-            field in `fp[fp.samples_group]`, a virtual field or method of
-            `FieldArray` (as long as the file contains the necessary fields
-            to derive the virtual field or method), and/or a function of
-            these.
-        thin_start : int
-            Index of the sample to begin returning samples. Default is to read
-            samples after burn in. To start from the beginning set thin_start
-            to 0.
-        thin_interval : int
-            Interval to accept every i-th sample. Default is to use the
-            `fp.acl`. If `fp.acl` is not set, then use all samples
-            (set thin_interval to 1).
-        thin_end : int
-            Index of the last sample to read. If not given then
-            `fp.niterations` is used.
-        iteration : int
-            Get a single iteration. If provided, will override the
-            `thin_{start/interval/end}` arguments.
-        walkers : {None, (list of) int}
-            The walker index (or a list of indices) to retrieve. If None,
-            samples from all walkers will be obtained.
-        flatten : {True, bool}
-            The returned array will be one dimensional, with all desired
-            samples from all desired walkers concatenated together. If False,
-            the returned array will have dimension requested walkers
-            x requested iterations.
-        samples_group : {None, str}
-            The group in `fp` from which to retrieve the parameter fields. If
-            None, searches in `fp.samples_group`.
-        array_class : {None, array class}
-            The type of array to return. The class must have a `from_kwargs`
-            class method and a `parse_parameters` method. If None, will return
-            a FieldArray.
-
-        Returns
-        -------
-        array_class
-            Samples for the given parameters, as an instance of a the given
-            `array_class` (`FieldArray` if `array_class` is None).
-        """
-        # get the type of array class to use
-        if array_class is None:
-            array_class = FieldArray
-        # get the names of fields needed for the given parameters
-        possible_fields = self[self.samples_group].keys()
-        loadfields = array_class.parse_parameters(parameters, possible_fields)
-        return self._read_fields(loadfields, array_class,
-                                thin_start=thin_start,
-                                thin_interval=thin_interval, thin_end=thin_end,
-                                iteration=iteration, walkers=walkers,
-                                flatten=flatten)
-
-    def _read_fields(self, fields, array_class,
-                     thin_start=None, thin_interval=None, thin_end=None,
-                     iteration=None, walkers=None, flatten=True):
-        """Base function for reading samples and model stats. See
-        `read_samples` and `read_model_stats` for details.
-
-        Parameters
-        -----------
-        fp : InferenceFile
-            An open file handler to read the samples from.
-        fields_group : str
-            The name of the group to retrieve the desired fields.
         fields : list
-            The list of field names to retrieve. Must be names of groups in
-            `fp[fields_group/]`.
-        array_class : FieldArray or similar
-            The type of array to return. Must have a `from_kwargs` attribute.
-
-        For other details on keyword arguments, see `read_samples` and
-        `read_model_stats`.
+            The list of field names to retrieve. Must be names of datasets in
+            the ``samples_group``.
 
         Returns
         -------
-        array_class
-            An instance of the given array class populated with values
-            retrieved from the fields.
+        dict
+            A dictionary of field name -> numpy array pairs.
         """
         # walkers to load
         if walkers is not None:
@@ -229,14 +154,14 @@ class EnsembleMCMCIO(obect):
             get_index = fp.get_slice(thin_start=thin_start, thin_end=thin_end,
                                      thin_interval=thin_interval)
         # load
+        group = self.samples_group + '/{name}'
         arrays = {}
-        group = fields_group + '/{name}'
         for name in fields:
             arr = fp[group.format(name=name)][widx, get_index]
             if flatten:
                 arr = arr.flatten()
             arrays[name] = arr
-        return array_class.from_kwargs(**arrays)
+        return arrays
 
     def write_resume_point(self):
         """Keeps a list of the number of iterations that were in a file when a
