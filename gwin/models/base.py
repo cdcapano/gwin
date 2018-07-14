@@ -56,10 +56,26 @@ class ModelStats(object):
         """Returns the names of the stats that have been stored."""
         return self.__dict__.keys()
 
-    @property
-    def stats(self):
-        """Returns a tuple of all of the stats that have been stored."""
-        return tuple(self.__dict__.values())
+    def getstats(self, names, default=numpy.nan):
+        """Get the requested stats.
+        
+        If a requested stat is not an attribute (implying it hasn't been
+        stored), then the default value is returned for that stat.
+
+        Parameters
+        ----------
+        names : list of str
+            The names of the stats to get.
+        default : float, optional
+            What to return if a requested stat is not an attribute of self.
+            Default is ``numpy.nan``.
+
+        Returns
+        -------
+        tuple
+            A tuple of the requested stats.
+        """
+        return tuple(getattr(self, n, default) for n in names)
 
 
 def modelstats_to_arrays(model_stats):
@@ -225,31 +241,6 @@ class BaseModel(object):
         self._current_stats = ModelStats()
 
     @property
-    def stats(self):
-        """The names of the statistics this can calculate.
-        """
-        return ['logjacobian', 'logprior', 'loglikelihood']
-
-    def update(self, **params):
-        """Updates the current parameter positions and resets stats.
-        
-        If any sampling transforms are specified, they are applied to the
-        params before being stored.
-        """
-        self._current_params = self._transform_params(**params)
-        self._current_stats = ModelStats()
-
-    @property
-    def current_params(self):
-        assert(self._current_params is not None,
-               "no parameters values currently stored; run update to add some")
-        return self._current_params
-
-    @property
-    def current_stats(self):
-        return self._current_stats
-
-    @property
     def variable_params(self):
         """Returns the model parameters."""
         return self._variable_params
@@ -272,10 +263,68 @@ class BaseModel(object):
             sampling_params = self.sampling_transforms.sampling_params
         return sampling_params
 
+    def update(self, **params):
+        """Updates the current parameter positions and resets stats.
+        
+        If any sampling transforms are specified, they are applied to the
+        params before being stored.
+        """
+        self._current_params = self._transform_params(**params)
+        self._current_stats = ModelStats()
+
+    @property
+    def current_params(self):
+        assert(self._current_params is not None,
+               "no parameters values currently stored; run update to add some")
+        return self._current_params
+
+    def current_stats(self, names=None):
+        """Return one or more of the current stats as a tuple.
+
+        This function does no computation. It only returns what has already
+        been calculated. If a stat hasn't been calculated, it will be returned
+        as ``numpy.nan``.
+
+        Parameters
+        ----------
+        names : list of str, optional
+            Specify the names of the stats to retrieve. If ``None`` (the
+            default), will return ``default_stats``.
+
+        Returns
+        -------
+        tuple :
+            The current values of the requested stats, as a tuple. The order
+            of the stats is the same as the names.
+        """
+        if names is None:
+            names = self.default_stats
+        return self._current_stats.getstats(names)
+
+    @property
+    def default_stats(self):
+        """The stats that ``get_current_stats`` returns by default."""
+        return ['logjacobian', 'logprior', 'loglikelihood']
+
     @abstractproperty
     def loglikelihood(self):
-        """Calculates the loglikelihood.
+        """The log likelihood at the current parameters.
+
+        This will initially try to return the ``current_stats.loglikelihood``.
+        If that raises an ``AttributeError``, will call `_loglikelihood`` to
+        calculate it and store it to ``current_stats``.
         """
+        try:
+            return self._current_stats.loglikelihood
+        except AttributeError:
+            logl = self._loglikelihood()
+            self._current_stats.loglikelihood = logl
+            return logl
+
+    @abstractmethod
+    def _loglikelihood(self):
+        """Low-level function that calculates the log likelihood of the current
+        params."""
         pass
 
     @property
@@ -330,13 +379,10 @@ class BaseModel(object):
 
         The logprior is calculated first. If the logprior returns ``-inf``
         (possibly indicating a non-physical point), then the ``loglikelihood``
-        is not called. Instead, the loglikelihood in ``current_stats`` is set
-        to ``nan``, and ``-inf`` is returned.
+        is not called.
         """
         logp = self.logprior
-        # if the prior returns -inf, set the loglikelihood to nan and return
         if logp == -numpy.inf:
-            self._current_stats.loglikelihood = numpy.nan
             return logp
         else:
             return logp + self.loglikelihood
@@ -562,28 +608,60 @@ class BaseDataModel(BaseModel):
         super(BaseDataModel, self).__init__(
             variable_params, **kwargs)
 
-    @abstractproperty
+    @property
+    def default_stats(self):
+        """The stats that ``get_current_stats`` returns by default."""
+        return ['logjacobian', 'logprior', 'loglr', 'lognl']
+
+    @property
     def lognl(self):
-        """Returns the log of the noise likelihood."""
+        """The log likelihood of the model assuming the data is noise.
+
+        This will initially try to return the ``current_stats.lognl``.
+        If that raises an ``AttributeError``, will call `_lognl`` to
+        calculate it and store it to ``current_stats``.
+        """
+        try:
+            return self._current_stats.lognl
+        except AttributeError:
+            lognl = self._lognl()
+            self._current_stats.lognl = lognl
+            return lognl
+
+    @abstractmethod
+    def _lognl(self):
+        """Low-level function that calculates the lognl."""
         pass
 
-    @abstractproperty
+    @property
     def loglr(self):
-        """Returns the natural log of the likelihood ratio.
+        """The log likelihood ratio at the current parameters.
+
+        This will initially try to return the ``current_stats.loglr``.
+        If that raises an ``AttributeError``, will call `_loglr`` to
+        calculate it and store it to ``current_stats``.
         """
         pass
 
-    @abstractproperty
+    @abstractmethod
+    def _loglr(self):
+        """Low-level function that calculates the loglr."""
+        pass
+
+    @property
     def logplr(self):
-        """Returns the log of the prior-weighted likelihood ratio.
-        """
-        pass
+        """Returns the log of the prior-weighted likelihood ratio at the
+        current parameter values.
 
-    def snr(self):
-        """Returns the "SNR" of the given params. This will return
-        imaginary values if the log likelihood ratio is < 0.
+        The logprior is calculated first. If the logprior returns ``-inf``
+        (possibly indicating a non-physical point), then ``loglr`` is not
+        called.
         """
-        return conversions.snr_from_loglr(self.loglr)
+        logp = self.logprior
+        if logp == -numpy.inf:
+            return logp
+        else:
+            return logp + self.loglr
 
     @property
     def waveform_generator(self):
