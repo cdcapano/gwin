@@ -30,10 +30,18 @@ import logging
 
 from abc import ABCMeta, abstractmethod, abstractproperty
 
-from pycbc import (conversions, transforms, distributions)
-from pycbc.waveform import generator
+from pycbc import (transforms, distributions)
 from pycbc.io import FieldArray
 from pycbc.workflow import ConfigParser
+
+
+#
+# =============================================================================
+#
+#                               Support classes
+#
+# =============================================================================
+#
 
 
 class _NoPrior(object):
@@ -77,28 +85,180 @@ class ModelStats(object):
         return tuple(getattr(self, n, default) for n in names)
 
 
-def modelstats_to_arrays(model_stats):
-    """Given a list of model stats, converts to a dictionary of numpy arrays.
+class SamplingTransforms(object):
+    """Provides methods for transforming between sampling parameter space and
+    model parameter space.
+    """
+
+    def __init__(self, variable_params, sampling_params,
+                 replace_parameters, sampling_transforms):
+        assert(len(replace_parameters) == len(sampling_params),
+               "number of sampling parameters must be the "
+               "same as the number of replace parameters")
+        # pull out the replaced parameters
+        self.sampling_params = [arg for arg in variable_params
+                                if arg not in replace_parameters]
+        # add the sampling parameters
+        self.sampling_params += sampling_params
+        self.sampling_transforms = sampling_transforms
+
+    def logjacobian(self, **params):
+        r"""Returns the log of the jacobian needed to transform pdfs in the
+        ``variable_params`` parameter space to the ``sampling_params``
+        parameter space.
+
+        Let :math:`\mathbf{x}` be the set of variable parameters,
+        :math:`\mathbf{y} = f(\mathbf{x})` the set of sampling parameters, and
+        :math:`p_x(\mathbf{x})` a probability density function defined over
+        :math:`\mathbf{x}`.
+        The corresponding pdf in :math:`\mathbf{y}` is then:
+
+        .. math::
+
+            p_y(\mathbf{y}) =
+                p_x(\mathbf{x})\left|\mathrm{det}\,\mathbf{J}_{ij}\right|,
+
+        where :math:`\mathbf{J}_{ij}` is the Jacobian of the inverse transform
+        :math:`\mathbf{x} = g(\mathbf{y})`. This has elements:
+
+        .. math::
+
+            \mathbf{J}_{ij} = \frac{\partial g_i}{\partial{y_j}}
+
+        This function returns
+        :math:`\log \left|\mathrm{det}\,\mathbf{J}_{ij}\right|`.
+
+
+        Parameters
+        ----------
+        \**params :
+            The keyword arguments should specify values for all of the variable
+            args and all of the sampling args.
+
+        Returns
+        -------
+        float :
+            The value of the jacobian.
+        """
+        return numpy.log(abs(transforms.compute_jacobian(
+            params, self.sampling_transforms, inverse=True)))
+
+    def apply(self, samples, inverse=False):
+        """Applies the sampling transforms to the given samples.
+
+        Parameters
+        ----------
+        samples : dict or FieldArray
+            The samples to apply the transforms to.
+        inverse : bool, optional
+            Whether to apply the inverse transforms (i.e., go from the sampling
+            args to the ``variable_params``). Default is False.
+
+        Returns
+        -------
+        dict or FieldArray
+            The transformed samples, along with the original samples.
+        """
+        return transforms.apply_transforms(samples, self.sampling_transforms,
+                                           inverse=inverse)
+
+    @classmethod
+    def from_config(cls, cp, variable_params):
+        """Gets sampling transforms specified in a config file.
+
+        Sampling parameters and the parameters they replace are read from the
+        ``sampling_params`` section, if it exists. Sampling transforms are
+        read from the ``sampling_transforms`` section(s), using
+        ``transforms.read_transforms_from_config``.
+
+        An ``AssertionError`` is raised if no ``sampling_params`` section
+        exists in the config file.
+
+        Parameters
+        ----------
+        cp : WorkflowConfigParser
+            Config file parser to read.
+        variable_params : list
+            List of parameter names of the original variable params.
+
+        Returns
+        -------
+        SamplingTransforms
+            A sampling transforms class.
+        """
+        assert(cp.has_section('sampling_params'),
+               "no sampling_params section found in config file")
+        # get sampling transformations
+        sampling_params, replace_parameters = \
+            read_sampling_params_from_config(cp)
+        sampling_transforms = transforms.read_transforms_from_config(
+            cp, 'sampling_transforms')
+        logging.info("Sampling in {} in place of {}".format(
+            ', '.join(sampling_params), ', '.join(replace_parameters)))
+        return cls(variable_params, sampling_params,
+                   replace_parameters, sampling_transforms)
+
+
+def read_sampling_params_from_config(cp, section_group=None,
+                                     section='sampling_params'):
+    """Reads sampling parameters from the given config file.
+
+    Parameters are read from the `[({section_group}_){section}]` section.
+    The options should list the variable args to transform; the parameters they
+    point to should list the parameters they are to be transformed to for
+    sampling. If a multiple parameters are transformed together, they should
+    be comma separated. Example:
+
+    .. code-block:: ini
+
+        [sampling_params]
+        mass1, mass2 = mchirp, logitq
+        spin1_a = logitspin1_a
+
+    Note that only the final sampling parameters should be listed, even if
+    multiple intermediate transforms are needed. (In the above example, a
+    transform is needed to go from mass1, mass2 to mchirp, q, then another one
+    needed to go from q to logitq.) These transforms should be specified
+    in separate sections; see ``transforms.read_transforms_from_config`` for
+    details.
 
     Parameters
     ----------
-    model_stats : list of ModelStats instances
-        The list to convert.
+    cp : WorkflowConfigParser
+        An open config parser to read from.
+    section_group : str, optional
+        Append `{section_group}_` to the section name. Default is None.
+    section : str, optional
+        The name of the section. Default is 'sampling_params'.
 
     Returns
     -------
-    dict :
-        Dictionary mapping stat names -> numpy arrays.
+    sampling_params : list
+        The list of sampling parameters to use instead.
+    replaced_params : list
+        The list of variable args to replace in the sampler.
     """
-    # use the first one to get the names of the stats
-    statnames = model_stats[0].statnames
-    # check that all of the model stats have the same stats in the same order
-    assert(all(x.statnames == statnames for x in model_stats),
-           "all model stats instances must have the same stats stored")
-    # store in memory as a 2D array
-    arr = numpy.array([x.stats for x in model_stats])
-    # return as a dict
-    return {p: arr[:, jj] for jj,p in enumerate(statnames)}
+    if section_group is not None:
+        section_prefix = '{}_'.format(section_group)
+    else:
+        section_prefix = ''
+    section = section_prefix + section
+    replaced_params = set()
+    sampling_params = set()
+    for args in cp.options(section):
+        map_args = cp.get(section, args)
+        sampling_params.update(set(map(str.strip, map_args.split(','))))
+        replaced_params.update(set(map(str.strip, args.split(','))))
+    return list(sampling_params), list(replaced_params)
+
+
+#
+# =============================================================================
+#
+#                               Base model definition
+#
+# =============================================================================
+#
 
 
 class BaseModel(object):
@@ -226,11 +386,8 @@ class BaseModel(object):
         if prior is None:
             self.prior_distribution = _NoPrior()
         else:
-            # check that the variable args of the prior evaluator is the same
-            # as the waveform generator
-            if prior.variable_args != variable_params:
-                raise ValueError("variable args of prior and waveform "
-                                 "generator do not match")
+            assert(prior.variable_args == variable_params,
+                   "variable params of prior do no match given")
             self.prior_distribution = prior
         # store sampling transforms
         self.sampling_transforms = sampling_transforms
@@ -563,169 +720,3 @@ class BaseModel(object):
         return cls(**args)
 
 
-
-class SamplingTransforms(object):
-    """Provides methods for transforming between sampling parameter space and
-    model parameter space.
-    """
-
-    def __init__(self, variable_params, sampling_params,
-                 replace_parameters, sampling_transforms):
-        assert(len(replace_parameters) == len(sampling_params),
-               "number of sampling parameters must be the "
-               "same as the number of replace parameters")
-        # pull out the replaced parameters
-        self.sampling_params = [arg for arg in variable_params
-                                if arg not in replace_parameters]
-        # add the sampling parameters
-        self.sampling_params += sampling_params
-        self.sampling_transforms = sampling_transforms
-
-    def logjacobian(self, **params):
-        r"""Returns the log of the jacobian needed to transform pdfs in the
-        ``variable_params`` parameter space to the ``sampling_params``
-        parameter space.
-
-        Let :math:`\mathbf{x}` be the set of variable parameters,
-        :math:`\mathbf{y} = f(\mathbf{x})` the set of sampling parameters, and
-        :math:`p_x(\mathbf{x})` a probability density function defined over
-        :math:`\mathbf{x}`.
-        The corresponding pdf in :math:`\mathbf{y}` is then:
-
-        .. math::
-
-            p_y(\mathbf{y}) =
-                p_x(\mathbf{x})\left|\mathrm{det}\,\mathbf{J}_{ij}\right|,
-
-        where :math:`\mathbf{J}_{ij}` is the Jacobian of the inverse transform
-        :math:`\mathbf{x} = g(\mathbf{y})`. This has elements:
-
-        .. math::
-
-            \mathbf{J}_{ij} = \frac{\partial g_i}{\partial{y_j}}
-
-        This function returns
-        :math:`\log \left|\mathrm{det}\,\mathbf{J}_{ij}\right|`.
-
-
-        Parameters
-        ----------
-        \**params :
-            The keyword arguments should specify values for all of the variable
-            args and all of the sampling args.
-
-        Returns
-        -------
-        float :
-            The value of the jacobian.
-        """
-        return numpy.log(abs(transforms.compute_jacobian(
-            params, self.sampling_transforms, inverse=True)))
-
-    def apply(self, samples, inverse=False):
-        """Applies the sampling transforms to the given samples.
-
-        Parameters
-        ----------
-        samples : dict or FieldArray
-            The samples to apply the transforms to.
-        inverse : bool, optional
-            Whether to apply the inverse transforms (i.e., go from the sampling
-            args to the ``variable_params``). Default is False.
-
-        Returns
-        -------
-        dict or FieldArray
-            The transformed samples, along with the original samples.
-        """
-        return transforms.apply_transforms(samples, self.sampling_transforms,
-                                           inverse=inverse)
-
-    @classmethod
-    def from_config(cls, cp, variable_params):
-        """Gets sampling transforms specified in a config file.
-
-        Sampling parameters and the parameters they replace are read from the
-        ``sampling_params`` section, if it exists. Sampling transforms are
-        read from the ``sampling_transforms`` section(s), using
-        ``transforms.read_transforms_from_config``.
-
-        An ``AssertionError`` is raised if no ``sampling_params`` section
-        exists in the config file.
-
-        Parameters
-        ----------
-        cp : WorkflowConfigParser
-            Config file parser to read.
-        variable_params : list
-            List of parameter names of the original variable params.
-
-        Returns
-        -------
-        SamplingTransforms
-            A sampling transforms class.
-        """
-        assert(cp.has_section('sampling_params'),
-               "no sampling_params section found in config file")
-        # get sampling transformations
-        sampling_params, replace_parameters = \
-            read_sampling_params_from_config(cp)
-        sampling_transforms = transforms.read_transforms_from_config(
-            cp, 'sampling_transforms')
-        logging.info("Sampling in {} in place of {}".format(
-            ', '.join(sampling_params), ', '.join(replace_parameters)))
-        return cls(variable_params, sampling_params,
-                   replace_parameters, sampling_transforms)
-
-
-def read_sampling_params_from_config(cp, section_group=None,
-                                     section='sampling_params'):
-    """Reads sampling parameters from the given config file.
-
-    Parameters are read from the `[({section_group}_){section}]` section.
-    The options should list the variable args to transform; the parameters they
-    point to should list the parameters they are to be transformed to for
-    sampling. If a multiple parameters are transformed together, they should
-    be comma separated. Example:
-
-    .. code-block:: ini
-
-        [sampling_params]
-        mass1, mass2 = mchirp, logitq
-        spin1_a = logitspin1_a
-
-    Note that only the final sampling parameters should be listed, even if
-    multiple intermediate transforms are needed. (In the above example, a
-    transform is needed to go from mass1, mass2 to mchirp, q, then another one
-    needed to go from q to logitq.) These transforms should be specified
-    in separate sections; see ``transforms.read_transforms_from_config`` for
-    details.
-
-    Parameters
-    ----------
-    cp : WorkflowConfigParser
-        An open config parser to read from.
-    section_group : str, optional
-        Append `{section_group}_` to the section name. Default is None.
-    section : str, optional
-        The name of the section. Default is 'sampling_params'.
-
-    Returns
-    -------
-    sampling_params : list
-        The list of sampling parameters to use instead.
-    replaced_params : list
-        The list of variable args to replace in the sampler.
-    """
-    if section_group is not None:
-        section_prefix = '{}_'.format(section_group)
-    else:
-        section_prefix = ''
-    section = section_prefix + section
-    replaced_params = set()
-    sampling_params = set()
-    for args in cp.options(section):
-        map_args = cp.get(section, args)
-        sampling_params.update(set(map(str.strip, map_args.split(','))))
-        replaced_params.update(set(map(str.strip, args.split(','))))
-    return list(sampling_params), list(replaced_params)
