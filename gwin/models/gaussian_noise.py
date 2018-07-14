@@ -23,10 +23,10 @@ from pycbc import filter
 from pycbc.waveform import NoWaveformError
 from pycbc.types import Array
 
-from .base_data import DataModel
+from .base_data import BaseDataModel
 
 
-class GaussianNoise(DataModel):
+class GaussianNoise(BaseDataModel):
     r"""Model that assumes data is stationary Gaussian noise.
 
     With Gaussian noise the log likelihood functions for signal
@@ -246,7 +246,7 @@ class GaussianNoise(DataModel):
         """The stats that ``get_current_stats`` returns by default."""
         return ['logjacobian', 'logprior', 'loglr', 'lognl'] + \
                ['{}_cplx_loglr'.format(det) for det in self._data] + \
-               ['{}_optimal_snrsq'.format(det) for det in self._data])
+               ['{}_optimal_snrsq'.format(det) for det in self._data]
 
     def _lognl(self):
         """Computes the log likelihood assuming the data is noise.
@@ -428,7 +428,7 @@ class MarginalizedPhaseGaussianNoise(GaussianNoise):
     def default_stats(self):
         """The stats that ``get_current_stats`` returns by default."""
         return ['logjacobian', 'logprior', 'loglr', 'lognl'] + \
-               ['{}_optimal_snrsq'.format(det) for det in self._data])
+               ['{}_optimal_snrsq'.format(det) for det in self._data]
 
     def _loglr(self):
         r"""Computes the log likelihood ratio,

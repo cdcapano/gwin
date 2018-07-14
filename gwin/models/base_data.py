@@ -27,7 +27,7 @@
 
 import numpy
 import logging
-from abc import (ABCMeta, abstractmethod, abstractproperty)
+from abc import (ABCMeta, abstractmethod)
 
 from pycbc import transforms
 from pycbc.waveform import generator

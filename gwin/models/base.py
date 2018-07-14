@@ -28,7 +28,7 @@
 import numpy
 import logging
 
-from abc import ABCMeta, abstractmethod, abstractproperty
+from abc import (ABCMeta, abstractmethod)
 
 from pycbc import (transforms, distributions)
 from pycbc.io import FieldArray
@@ -92,9 +92,9 @@ class SamplingTransforms(object):
 
     def __init__(self, variable_params, sampling_params,
                  replace_parameters, sampling_transforms):
-        assert(len(replace_parameters) == len(sampling_params),
-               "number of sampling parameters must be the "
-               "same as the number of replace parameters")
+        assert len(replace_parameters) == len(sampling_params), (
+            "number of sampling parameters must be the "
+            "same as the number of replace parameters")
         # pull out the replaced parameters
         self.sampling_params = [arg for arg in variable_params
                                 if arg not in replace_parameters]
@@ -186,8 +186,8 @@ class SamplingTransforms(object):
         SamplingTransforms
             A sampling transforms class.
         """
-        assert(cp.has_section('sampling_params'),
-               "no sampling_params section found in config file")
+        if not cp.has_section('sampling_params'):
+            raise ValueError("no sampling_params section found in config file")
         # get sampling transformations
         sampling_params, replace_parameters = \
             read_sampling_params_from_config(cp)
@@ -386,8 +386,8 @@ class BaseModel(object):
         if prior is None:
             self.prior_distribution = _NoPrior()
         else:
-            assert(prior.variable_args == variable_params,
-                   "variable params of prior do no match given")
+            assert prior.variable_args == variable_params, (
+                "variable params of prior and model must be the same")
             self.prior_distribution = prior
         # store sampling transforms
         self.sampling_transforms = sampling_transforms
@@ -430,8 +430,9 @@ class BaseModel(object):
 
     @property
     def current_params(self):
-        assert(self._current_params is not None,
-               "no parameters values currently stored; run update to add some")
+        if self._current_params is None:
+            raise ValueError("no parameters values currently stored; "
+                             "run update to add some")
         return self._current_params
 
     def current_stats(self, names=None):
@@ -462,7 +463,7 @@ class BaseModel(object):
         """The stats that ``get_current_stats`` returns by default."""
         return ['logjacobian', 'logprior', 'loglikelihood']
 
-    @abstractproperty
+    @property
     def loglikelihood(self):
         """The log likelihood at the current parameters.
 
