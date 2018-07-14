@@ -59,10 +59,6 @@ class GaussianNoise(BaseDataModel):
             \left<h_i(\Theta)|d_i\right> -
             \frac{1}{2} \left<h_i(\Theta)|h_i(\Theta)\right> \right]
 
-    For this reason, by default this class returns ``logplr`` when called as a
-    function instead of ``logposterior``. This can be changed via the
-    ``set_callfunc`` method.
-
     Upon initialization, the data is whitened using the given PSDs. If no PSDs
     are given the data and waveforms returned by the waveform generator are
     assumed to be whitened. The likelihood function of the noise,
@@ -111,7 +107,7 @@ class GaussianNoise(BaseDataModel):
         either a float or an array. If ``None``, ``4*data.values()[0].delta_f``
         will be used.
     **kwargs :
-        All other keyword arguments are passed to ``BaseModel``.
+        All other keyword arguments are passed to ``BaseDataModel``.
 
     Examples
     --------
@@ -139,44 +135,56 @@ class GaussianNoise(BaseDataModel):
     >>> psd = pypsd.aLIGOZeroDetHighPower(N, 1./seglen, 20.)
     >>> psds = {'H1': psd, 'L1': psd}
     >>> model = gwin.models.GaussianNoise(
-            variable_params, signal, generator, fmin, psds=psds,
-            return_meta=False)
+            variable_params, signal, generator, fmin, psds=psds)
+
+    Set the current position to the coalescence time of the signal:
+
+    >>> model.update(tc=tsig)
 
     Now compute the log likelihood ratio and prior-weighted likelihood ratio;
     since we have not provided a prior, these should be equal to each other:
 
-    >>> model.loglr(tc=tsig)
-    ArrayWithAligned(277.92945279883855)
-    >>> model.logplr(tc=tsig)
-    ArrayWithAligned(277.92945279883855)
+    >>> model.loglr
+    278.9612860719217
+    >>> model.logplr
+    278.9612860719217
 
-    Compute the log likelihood and log posterior; since we have not
-    provided a prior, these should both be equal to zero:
+    Print all of the default_stats:
 
-    >>> model.loglikelihood(tc=tsig)
-    ArrayWithAligned(0.0)
-    >>> model.logposterior(tc=tsig)
-    ArrayWithAligned(0.0)
+    >>> model.current_stats
+    {'H1_cplx_loglr': (175.56552899471038+0j),
+     'H1_optimal_snrsq': 351.13105798942075,
+     'L1_cplx_loglr': (103.39575707721129+0j),
+     'L1_optimal_snrsq': 206.79151415442257,
+     'logjacobian': 0.0,
+     'loglr': 278.9612860719217,
+     'logprior': 0.0}
 
     Compute the SNR; for this system and PSD, this should be approximately 24:
 
-    >>> model.snr(tc=tsig)
-    ArrayWithAligned(23.576660187517593)
+    >>> from pycbc.conversions import snr_from_loglr
+    >>> snr_from_loglr(model.loglr)
+    23.62038467391764
 
-    Using the same model, evaluate the log prior-weighted
-    likelihood ratio at several points in time, check that the max is at tsig,
-    and plot (note that we use the class as a function here, which defaults
-    to calling ``logplr``):
+    Since there is no noise, the SNR should be the same as the quadrature sum
+    of the optimal SNRs in each detector:
 
-    >>> from matplotlib import pyplot
+    >>> (model.current_stats['H1_optimal_snrsq'] +
+         model.current_stats['L1_optimal_snrsq'])**0.5
+    23.62038467391764
+
+    Using the same model, evaluate the log likelihood ratio at several points
+    in time and check that the max is at tsig:
+
+    >>> import numpy
     >>> times = numpy.arange(seglen*sample_rate)/float(sample_rate)
-    >>> lls = numpy.array([model([t]) for t in times])
-    >>> times[lls.argmax()]
-    3.10009765625
-    >>> fig = pyplot.figure(); ax = fig.add_subplot(111)
-    >>> ax.plot(times, lls)
-    [<matplotlib.lines.Line2D at 0x1274b5c50>]
-    >>> fig.show()
+    >>> loglrs = numpy.zeros(len(times))
+    >>> for (ii, t) in enumerate(times):
+            model.update(tc=t)
+            loglrs[ii] = model.loglr
+    >>> print('tsig: {}, time of max loglr: {}'.format(
+            tsig, times[loglrs.argmax()]))
+    tsig: 3.1, time of max loglr: 3.10009765625
 
     Create a prior and use it (see distributions module for more details):
 
@@ -184,12 +192,19 @@ class GaussianNoise(BaseDataModel):
     >>> uniform_prior = distributions.Uniform(tc=(tsig-0.2,tsig+0.2))
     >>> prior = distributions.JointDistribution(variable_params, uniform_prior)
     >>> model = gwin.models.GaussianNoise(variable_params,
-            signal, generator, 20., psds=psds, prior=prior,
-            return_meta=False)
-    >>> model.logplr(tc=tsig)
-    ArrayWithAligned(278.84574353071264)
-    >>> model.logposterior(tc=tsig)
-    ArrayWithAligned(0.9162907318741418)
+            signal, generator, 20., psds=psds, prior=prior)
+    >>> model.update(tc=tsig)
+    >>> model.logplr
+    279.8775768037958
+    >>> model.current_stats
+    {'H1_cplx_loglr': (175.56552899471038+0j),
+     'H1_optimal_snrsq': 351.13105798942075,
+     'L1_cplx_loglr': (103.39575707721127+0j),
+     'L1_optimal_snrsq': 206.79151415442254,
+     'logjacobian': 0.0,
+     'loglr': 278.9612860719217,
+     'logprior': 0.9162907318741542}
+
     """
     name = 'gaussian_noise'
 
@@ -244,7 +259,7 @@ class GaussianNoise(BaseDataModel):
     @property
     def default_stats(self):
         """The stats that ``get_current_stats`` returns by default."""
-        return ['logjacobian', 'logprior', 'loglr', 'lognl'] + \
+        return ['logjacobian', 'logprior', 'loglr'] + \
                ['{}_cplx_loglr'.format(det) for det in self._data] + \
                ['{}_optimal_snrsq'.format(det) for det in self._data]
 
@@ -427,7 +442,7 @@ class MarginalizedPhaseGaussianNoise(GaussianNoise):
     @property
     def default_stats(self):
         """The stats that ``get_current_stats`` returns by default."""
-        return ['logjacobian', 'logprior', 'loglr', 'lognl'] + \
+        return ['logjacobian', 'logprior', 'loglr'] + \
                ['{}_optimal_snrsq'.format(det) for det in self._data]
 
     def _loglr(self):

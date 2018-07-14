@@ -44,6 +44,23 @@ class TestNormal(BaseModel):
     **kwargs :
         All other keyword arguments are passed to ``BaseModel``.
 
+    Examples
+    --------
+    Create a 2D model with zero mean and unit variance:
+
+    >>> m = TestNormal(['x', 'y'])
+
+    Set the current parameters and evaluate the log posterior:
+
+    >>> m.update(x=-0.2, y=0.1)
+    >>> m.logposterior
+    -1.8628770664093453
+
+    See the current stats that were evaluated:
+
+    >>> m.current_stats
+    {'logjacobian': 0.0, 'loglikelihood': -1.8628770664093453, 'logprior': 0.0}
+
     """
     name = "test_normal"
 

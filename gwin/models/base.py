@@ -64,7 +64,7 @@ class ModelStats(object):
         return self.__dict__.keys()
 
     def getstats(self, names, default=numpy.nan):
-        """Get the requested stats.
+        """Get the requested stats as a tuple.
         
         If a requested stat is not an attribute (implying it hasn't been
         stored), then the default value is returned for that stat.
@@ -83,6 +83,27 @@ class ModelStats(object):
             A tuple of the requested stats.
         """
         return tuple(getattr(self, n, default) for n in names)
+
+    def getstatsdict(self, names, default=numpy.nan):
+        """Get the requested stats as a dictionary.
+        
+        If a requested stat is not an attribute (implying it hasn't been
+        stored), then the default value is returned for that stat.
+
+        Parameters
+        ----------
+        names : list of str
+            The names of the stats to get.
+        default : float, optional
+            What to return if a requested stat is not an attribute of self.
+            Default is ``numpy.nan``.
+
+        Returns
+        -------
+        dict
+            A dictionary of the requested stats.
+        """
+        return dict(zip(names, self.getstats(names, default=default)))
 
 
 class SamplingTransforms(object):
@@ -435,7 +456,12 @@ class BaseModel(object):
                              "run update to add some")
         return self._current_params
 
-    def current_stats(self, names=None):
+    @property
+    def default_stats(self):
+        """The stats that ``get_current_stats`` returns by default."""
+        return ['logjacobian', 'logprior', 'loglikelihood']
+
+    def get_current_stats(self, names=None):
         """Return one or more of the current stats as a tuple.
 
         This function does no computation. It only returns what has already
@@ -457,11 +483,21 @@ class BaseModel(object):
         if names is None:
             names = self.default_stats
         return self._current_stats.getstats(names)
-
+        
     @property
-    def default_stats(self):
-        """The stats that ``get_current_stats`` returns by default."""
-        return ['logjacobian', 'logprior', 'loglikelihood']
+    def current_stats(self):
+        """Return the ``default_stats`` as a dict.
+
+        This does no computation. It only returns what has already been
+        calculated. If a stat hasn't been calculated, it will be returned
+        as ``numpy.nan``.
+
+        Returns
+        -------
+        dict :
+            Dictionary of stat names -> current stat values.
+        """
+        return self._current_stats.getstatsdict(self.default_stats)
 
     @property
     def loglikelihood(self):

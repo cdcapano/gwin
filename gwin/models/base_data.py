@@ -111,7 +111,12 @@ class BaseDataModel(BaseModel):
         If that raises an ``AttributeError``, will call `_loglr`` to
         calculate it and store it to ``current_stats``.
         """
-        pass
+        try:
+            return self._current_stats.loglr
+        except AttributeError:
+            loglr = self._loglr()
+            self._current_stats.loglr = loglr
+            return loglr
 
     @abstractmethod
     def _loglr(self):
@@ -143,10 +148,9 @@ class BaseDataModel(BaseModel):
         """Returns the data that was set."""
         return self._data
 
-    def _transform_params(self, params):
+    def _transform_params(self, **params):
         """Adds waveform transforms to parent's ``_transform_params``."""
-        params = super(BaseDataModel, self)._transform_params(
-            params)
+        params = super(BaseDataModel, self)._transform_params(**params)
         # apply waveform transforms
         if self._waveform_transforms is not None:
             params = transforms.apply_transforms(params,
