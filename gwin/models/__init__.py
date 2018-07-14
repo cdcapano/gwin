@@ -34,6 +34,58 @@ def _call_global_model(*args, **kwds):
     return _global_instance(*args, **kwds)  # pylint:disable=not-callable
 
 
+class CallModel(object):
+    """Wrapper class for calling models from a sampler.
+
+    This class can be called like a function.
+
+    This class must be initalized prior to the creation of a ``Pool`` object.
+
+    Parameters
+    ----------
+    model : Model instance
+        The model to call.
+    callfunction : str
+        The statistic to call.
+    return_stats : bool, optional
+        Whether or not to return all of the other statistics along with the
+        ``callfunction`` value.
+    """
+
+    def __init__(self, model, callfunction, return_all_stats=True):
+        self.model = model
+        self.callfunction = callfunction
+        self.return_all_stats = return_all_stats
+
+    def __call__(self, param_values):
+        """Updates the model with the given parameter values, then calls the
+        call function.
+
+        Parameters
+        ----------
+        param_values : list of float
+            The parameter values to test. Assumed to be in the same order as
+            ``model.sampling_params``.
+
+        Returns
+        -------
+        stat : float
+            The statistic returned by the ``callfunction``.
+        all_stats : tuple, optional
+            The values of all of the model's ``default_stats`` at the given
+            param values. Any stat that has not be calculated is set to
+            ``numpy.nan``. This is only returned if ``return_all_stats`` is
+            set to ``True``.
+        """
+        params = dict(zip(self.model.sampling_params, param_values))
+        self.model.update(**params)
+        val = getattr(self, model, self.callfunction)
+        if self.return_stats:
+            return val, self.model.current_stats
+        else:
+            return val
+
+
 def read_from_config(cp, section="model", **kwargs):
     """Initializes a model from the given config file.
 
@@ -57,8 +109,7 @@ def read_from_config(cp, section="model", **kwargs):
     """
     # use the name to get the distribution
     name = cp.get(section, "name")
-    return models[name].from_config(
-        cp, section=section, **kwargs)
+    return models[name].from_config(cp, **kwargs)
 
 
 models = {_cls.name: _cls for _cls in (
