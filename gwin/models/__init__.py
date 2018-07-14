@@ -86,7 +86,7 @@ class CallModel(object):
             return val
 
 
-def read_from_config(cp, section="model", **kwargs):
+def read_from_config(cp, **kwargs):
     """Initializes a model from the given config file.
 
     The section must have a ``name`` argument. The name argument corresponds to
@@ -96,8 +96,6 @@ def read_from_config(cp, section="model", **kwargs):
     ----------
     cp : WorkflowConfigParser
         Config file parser to read.
-    section : str, optional
-        The section to read. Default is "model".
     \**kwargs :
         All other keyword arguments are passed to the ``from_config`` method
         of the class specified by the name argument.
