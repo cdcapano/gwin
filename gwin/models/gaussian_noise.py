@@ -13,8 +13,7 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
-"""
-This modules provides model classes that assume the noise is Gaussian.
+"""This module provides model classes that assume the noise is Gaussian.
 """
 
 import numpy
@@ -24,7 +23,7 @@ from pycbc import filter
 from pycbc.waveform import NoWaveformError
 from pycbc.types import Array
 
-from .base import DataModel
+from .base_data import DataModel
 
 
 class GaussianNoise(DataModel):

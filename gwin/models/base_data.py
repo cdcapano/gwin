@@ -29,10 +29,11 @@ import numpy
 import logging
 from abc import (ABCMeta, abstractmethod, abstractproperty)
 
-from pycbc import (conversions, transforms, distributions)
+from pycbc import transforms
 from pycbc.waveform import generator
 
 from .base import BaseModel
+
 
 class BaseDataModel(BaseModel):
     r"""A model that requires data and a waveform generator.
