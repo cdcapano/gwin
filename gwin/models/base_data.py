@@ -36,11 +36,14 @@ from .base import BaseModel
 
 
 class BaseDataModel(BaseModel):
-    r"""A model that requires data and a waveform generator.
+    r"""Base class for models that require data and a waveform generator.
 
-    Like ``BaseModel``, this class only provides boiler-plate
-    attributes and methods for evaluating models. Classes that make use
-    of data and a waveform generator should inherit from this.
+    This adds propeties for the log of the likelihood that the data contain
+    noise, ``lognl``, and the log likelihood ratio ``loglr``. 
+
+    Classes that inherit from this class must define ``_loglr`` and ``_lognl``
+    functions, in addition to the ``_loglikelihood`` requirement inherited from
+    ``BaseModel``.
 
     Parameters
     ----------
@@ -65,7 +68,16 @@ class BaseDataModel(BaseModel):
     data : dict
         The data that the class was initialized with.
 
-    For additional attributes and methods, see ``BaseModel``.
+    Properties
+    ----------
+    lognl :
+        Returns the log likelihood of the noise.
+    loglr :
+        Returns the log of the likelihood ratio.
+    logplr :
+        Returns the log of the prior-weighted likelihood ratio.
+
+    See ``BaseModel`` for additional attributes and properties.
     """
     __metaclass__ = ABCMeta
 

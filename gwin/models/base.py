@@ -285,56 +285,32 @@ def read_sampling_params_from_config(cp, section_group=None,
 class BaseModel(object):
     r"""Base class for all models.
 
-    The nomenclature used by this class and those that inherit from it is as
-    follows: Given some model parameters :math:`\Theta` and some data
-    :math:`d` with noise model :math:`n`, we define:
-
-     * the **likelihood function**: :math:`p(d|\Theta)`
-
-     * the **noise likelihood**: :math:`p(d|n)`
-
-     * the **likelihood ratio**:
-       :math:`\mathcal{L}(\Theta) = \frac{p(d|\Theta)}{p(d|n)}`
-
-     * the **prior**: :math:`p(\Theta)`
-
-     * the **posterior**: :math:`p(\Theta|d) \propto p(d|\Theta)p(\Theta)`
-
-     * the **prior-weighted likelihood ratio**:
-       :math:`\hat{\mathcal{L}}(\Theta) = \frac{p(d|\Theta)p(\Theta)}{p(d|n)}`
-
-     * the **SNR**: :math:`\rho(\Theta) = \sqrt{2\log\mathcal{L}(\Theta)}`;
-       for two detectors, this is approximately the same quantity as the
-       coincident SNR used in the CBC search.
-
-    .. note::
-
-        Although the posterior probability is only proportional to
-        :math:`p(d|\Theta)p(\Theta)`, here we refer to this quantity as the
-        posterior. Also note that for a given noise model, the prior-weighted
-        likelihood ratio is proportional to the posterior, and so the two can
-        usually be swapped for each other.
-
-    When performing parameter estimation we work with the log of these values
-    since we are mostly concerned with their values around the maxima. If
-    we have multiple detectors, each with data :math:`d_i`, then these values
-    simply sum over the detectors. For example, the log likelihood ratio is:
+    Given some model :math:`h` with parameters :math:`\Theta`, Bayes Theorem
+    states that the probability of observing parameter values :math:`\vartheta`
+    is:
 
     .. math::
 
-        \log \mathcal{L}(\Theta) =
-            \sum_i \left[\log p(\Theta|d_i) - \log p(n|d_i)\right]
+        p(\vartheta|h) = \frac{p(h|\vartheta) p(\vartheta)}{p(h)}.
 
-    This class provides boiler-plate methods and attributes for evaluating the
-    log likelihood ratio, log prior, and log likelihood. This class makes no
-    assumption about the detectors' noise model :math:`n`. As such, the methods
-    for computing these values raise ``NotImplementedErrors``. These functions
-    need to be monkey patched, or other classes that inherit from this class
-    need to define their own functions.
+    Here:
 
-    Instances of this class can be called like a function. The default is for
-    this class to call its ``logposterior`` function, but this can be changed
-    with the ``set_callfunc`` method.
+     * :math:`p(\vartheta|h)` is the **posterior** probability;
+
+     * :math:`p(h|\vartheta)` is the **likelihood**;
+
+     * :math:`p(\vartheta)` is the **prior**;
+
+     * :math:`p(h)` is the **evidence**.
+
+    This class defines properties and methods for evaluating the log
+    likelihood, log prior, and log posteror. A set of parameter values is set
+    using the ``update`` method. Calling the class's
+    ``log(likelihood|prior|posterior)`` properties will then evaluate the model
+    at those parameter values.
+    
+    Classes that inherit from this class must implement a ``_loglikelihood``
+    function that can be called by ``loglikelihood``.
 
     Parameters
     ----------
@@ -356,22 +332,13 @@ class BaseModel(object):
         List of transforms to use to go between the ``variable_params`` and the
         sampling parameters. Required if ``sampling_params`` is not None.
 
-    Attributes
+    Properties
     ----------
-    lognl : {None, float}
-        The log of the noise likelihood summed over the number of detectors.
-    return_meta : {True, bool}
-        If True, ``prior``, ``logposterior``, and ``logplr`` will return the
-        value of the prior, the loglikelihood ratio, and the log jacobian,
-        along with the posterior/plr.
-
-    Methods
-    -------
     logjacobian :
         Returns the log of the jacobian needed to go from the parameter space
-        of the ``variable_params`` to the sampling args.
-    prior :
-        A function that returns the log of the prior.
+        of the ``variable_params`` to the sampling params.
+    logprior :
+        Returns the log of the prior.
     loglikelihood :
         A function that returns the log of the likelihood function.
     logposterior :
@@ -380,14 +347,6 @@ class BaseModel(object):
         A function that returns the log of the likelihood ratio.
     logplr :
         A function that returns the log of the prior-weighted likelihood ratio.
-    snr :
-        A function that returns the square root of twice the log likelihood
-        ratio. If the log likelihood ratio is < 0, will return 0.
-    evaluate :
-        Maps a list of values to their parameter names and calls whatever the
-        call function is set to.
-    set_callfunc :
-        Set the function to use when the class is called as a function.
     """
     __metaclass__ = ABCMeta
     name = None
