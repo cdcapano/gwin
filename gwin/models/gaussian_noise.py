@@ -241,14 +241,43 @@ class GaussianNoise(DataModel):
         # whiten the data
         for det in self._data:
             self._data[det][kmin:kmax] *= self._weight[det][kmin:kmax]
-        # compute the log likelihood function of the noise and save it
-        self.set_lognl(-0.5*sum([
-            d[kmin:kmax].inner(d[kmin:kmax]).real
-            for d in self._data.values()]))
-        # set default call function to logplor
-        self.set_callfunc('logplr')
 
-    def loglr(self, **params):
+    @property
+    def default_stats(self):
+        """The stats that ``get_current_stats`` returns by default."""
+        return ['logjacobian', 'logprior', 'loglr', 'lognl'] + \
+               ['{}_cplx_loglr'.format(det) for det in self._data] + \
+               ['{}_optimal_snrsq'.format(det) for det in self._data])
+
+    def _lognl(self):
+        """Computes the log likelihood assuming the data is noise.
+
+        Since this is a constant for Gaussian noise, this is only computed once
+        then stored.
+        """
+        try:
+            return self.__lognl
+        except AttributeError:
+            det_lognls = {}
+            for (det, d) in self._data.items():
+                kmin = self._kmin
+                kmax = self._kmax
+                det_lognls[det] = -0.5 * d[kmin:kmax].inner(d[kmin:kmax]).real
+            self.__det_lognls = det_lognls
+            self.__lognl = sum(det_lognls.values())
+            return self.__lognl
+
+    def _nowaveform_loglr(self):
+        """Convenience function to set loglr values if no waveform generated.
+        """
+        for det in self._data:
+            setattr(self._current_stats, '{}_cplx_loglr'.format(det),
+                    -numpy.inf)
+            # snr can't be < 0 by definition, so return 0
+            setattr(self._current_stats, '{}_optimal_snrsq'.format(det), 0.)
+        return -numpy.inf
+
+    def _loglr(self):
         r"""Computes the log likelihood ratio,
 
         .. math::
@@ -257,56 +286,51 @@ class GaussianNoise(DataModel):
                 \left<h_i(\Theta)|d_i\right> -
                 \frac{1}{2}\left<h_i(\Theta)|h_i(\Theta)\right>,
 
-        at the given point in parameter space :math:`\Theta`.
-
-        Parameters
-        ----------
-        \**params :
-            The keyword arguments should give the values of each parameter to
-            evaluate.
+        at the current parameter values :math:`\Theta`.
 
         Returns
         -------
-        numpy.float64
-            The value of the log likelihood ratio evaluated at the given point.
+        float
+            The value of the log likelihood ratio.
         """
-        lr = 0.
+        params = self.current_params
         try:
             wfs = self._waveform_generator.generate(**params)
         except NoWaveformError:
-            # if no waveform was generated, just return 0
-            return lr
+            return self._nowaveform_loglr()
+        lr = 0.
         for det, h in wfs.items():
             # the kmax of the waveforms may be different than internal kmax
             kmax = min(len(h), self._kmax)
-            # whiten the waveform
             if self._kmin >= kmax:
                 # if the waveform terminates before the filtering low frequency
-                # cutoff, there is nothing to filter, so just go onto the next
-                continue
-            slc = slice(self._kmin, kmax)
-            h[self._kmin:kmax] *= self._weight[det][slc]
-            lr += (
-                # <h, d>
-                self.data[det][slc].inner(h[slc]).real -
-                # <h, h>/2.
-                0.5*h[slc].inner(h[slc]).real
-            )
-        return numpy.float64(lr)
+                # cutoff, then the loglr is just 0 for this detector
+                cplx_hd = 0j
+                hh = 0.
+            else:
+                slc = slice(self._kmin, kmax)
+                # whiten the waveform
+                h[self._kmin:kmax] *= self._weight[det][slc]
+                # the inner products
+                cplx_hd = self.data[det][slc].inner(h[slc]) # <h, d>
+                hh = h[slc].inner(h[slc]).real # < h, h>
+            cplx_loglr = cplx_hd - 0.5*hh
+            # store
+            setattr(self._current_stats, '{}_optimal_snrsq'.format(det), hh)
+            setattr(self._current_stats, '{}_cplx_loglr'.format(det),
+                    cplx_loglr)
+            lr += cplx_loglr.real
+        return float(lr)
 
-    def loglikelihood(self, **params):
+    def _loglikelihood(self):
         r"""Computes the log likelihood of the paramaters,
 
         .. math::
 
             p(d|\Theta) = -\frac{1}{2}\sum_i
-                \left<h_i(\Theta) - d_i | h_i(\Theta) - d_i\right>
+                \left<h_i(\Theta) - d_i | h_i(\Theta) - d_i\right>,
 
-        Parameters
-        ----------
-        \**params :
-            The keyword arguments should give the values of each parameter to
-            evaluate.
+        at the current parameter values :math:`\Theta`.
 
         Returns
         -------
@@ -315,36 +339,7 @@ class GaussianNoise(DataModel):
         """
         # since the loglr has fewer terms, we'll call that, then just add
         # back the noise term that canceled in the log likelihood ratio
-        return self.loglr(**params) + self._lognl
-
-    def logposterior(self, **params):
-        """Computes the log-posterior probability at the given point in
-        parameter space.
-
-        Parameters
-        ----------
-        \**params :
-            The keyword arguments should give the values of each parameter to
-            evaluate.
-
-        Returns
-        -------
-        float
-            The value of the log-posterior evaluated at the given point in
-            parameter space.
-        metadata : tuple
-            If ``return_meta``, the prior and likelihood ratio as a tuple.
-            Otherwise, just returns the log-posterior.
-        """
-        # since the logplr has fewer terms, we'll call that, then just add
-        # back the noise term that canceled in the log likelihood ratio
-        logplr = self.logplr(**params)
-        if self.return_meta:
-            logplr, (pr, lr, lj) = logplr
-        else:
-            pr = lr = lj = None
-        return self._formatreturn(logplr + self._lognl, prior=pr, loglr=lr,
-                                  logjacobian=lj)
+        return self.loglr + self.lognl
 
 
 class MarginalizedPhaseGaussianNoise(GaussianNoise):
@@ -430,7 +425,13 @@ class MarginalizedPhaseGaussianNoise(GaussianNoise):
     """
     name = 'marginalized_phase'
 
-    def loglr(self, **params):
+    @property
+    def default_stats(self):
+        """The stats that ``get_current_stats`` returns by default."""
+        return ['logjacobian', 'logprior', 'loglr', 'lognl'] + \
+               ['{}_optimal_snrsq'.format(det) for det in self._data])
+
+    def _loglr(self):
         r"""Computes the log likelihood ratio,
 
         .. math::
@@ -439,36 +440,40 @@ class MarginalizedPhaseGaussianNoise(GaussianNoise):
                 I_0 \left(\left|\sum_i O(h^0_i, d_i)\right|\right) -
                 \frac{1}{2}\left<h^0_i, h^0_i\right>,
 
-        at the given point in parameter space :math:`\Theta`.
-
-        Parameters
-        ----------
-        \**params :
-            The keyword arguments should give the values of each parameter to
-            evaluate.
+        at the current point in parameter space :math:`\Theta`.
 
         Returns
         -------
-        numpy.float64
+        float 
             The value of the log likelihood ratio evaluated at the given point.
         """
+        params = self.current_params
         try:
             wfs = self._waveform_generator.generate(**params)
         except NoWaveformError:
-            # if no waveform was generated, just return 0
-            return 0.
+            return self._nowaveform_loglr()
         hh = 0.
         hd = 0j
         for det, h in wfs.items():
             # the kmax of the waveforms may be different than internal kmax
             kmax = min(len(h), self._kmax)
-            # whiten the waveform
             if self._kmin >= kmax:
                 # if the waveform terminates before the filtering low frequency
-                # cutoff, there is nothing to filter, so just go onto the next
-                continue
-            h[self._kmin:kmax] *= self._weight[det][self._kmin:kmax]
-            hh += h[self._kmin:kmax].inner(h[self._kmin:kmax]).real
-            hd += self.data[det][self._kmin:kmax].inner(h[self._kmin:kmax])
+                # cutoff, then the loglr is just 0 for this detector
+                hh_i = 0.
+                hd_i = 0j
+            else:
+                # whiten the waveform
+                h[self._kmin:kmax] *= self._weight[det][self._kmin:kmax]
+                # calculate inner products
+                hh_i = h[self._kmin:kmax].inner(h[self._kmin:kmax]).real
+                hd_i = self.data[det][self._kmin:kmax].inner(
+                    h[self._kmin:kmax])
+            # store
+            setattr(self._current_stats, '{}_optimal_snrsq'.format(det), hh_i)
+            # XXX: is it possible to store a somethigng like cplx_loglr for
+            # each detector?
+            hh += hh_i
+            hd += hd_i
         hd = abs(hd)
         return numpy.log(special.i0e(hd)) + hd - 0.5*hh
