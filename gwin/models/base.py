@@ -733,5 +733,3 @@ class BaseModel(object):
         args['sampling_transforms'] = sampling_transforms
         args.update(kwargs)
         return cls(**args)
-
-
