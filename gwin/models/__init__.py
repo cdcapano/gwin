@@ -98,7 +98,7 @@ class CallModel(object):
         """Adds the models attributes to self."""
         return getattr(self.model, attr)
 
-    def __call__(self, param_values):
+    def __call__(self, param_values, callstat=None, return_all_stats=None):
         """Updates the model with the given parameter values, then calls the
         call function.
 
@@ -107,6 +107,12 @@ class CallModel(object):
         param_values : list of float
             The parameter values to test. Assumed to be in the same order as
             ``model.sampling_params``.
+        callstat : str, optional
+            Specify which statistic to call. Default is to call whatever self's
+            ``callstat`` is set to.
+        return_all_stats : bool, optional
+            Whether or not to return all stats in addition to the ``callstat``
+            value. Default is to use self's ``return_all_stats``.
 
         Returns
         -------
@@ -118,10 +124,14 @@ class CallModel(object):
             ``numpy.nan``. This is only returned if ``return_all_stats`` is
             set to ``True``.
         """
+        if callstat is None:
+            callstat = self.callstat
+        if return_all_stats is None:
+            return_all_stats = self.return_all_stats
         params = dict(zip(self.model.sampling_params, param_values))
         self.model.update(**params)
-        val = getattr(self.model, self.callstat)
-        if self.return_all_stats:
+        val = getattr(self.model, callstat)
+        if return_all_stats:
             return val, self.model.get_current_stats()
         else:
             return val
