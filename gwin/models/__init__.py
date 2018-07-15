@@ -37,7 +37,16 @@ def _call_global_model(*args, **kwds):
 class CallModel(object):
     """Wrapper class for calling models from a sampler.
 
-    This class can be called like a function.
+    This class can be called like a function, with the parameter values to
+    evaluate provided as a list in the same order as the model's
+    ``variable_params``. In that case, the model is updated with the provided
+    parameters and then the ``callstat`` retrieved. If ``return_all_stats`` is
+    set to ``True``, then all of the stats specified by the model's
+    ``default_stats`` will be returned as a tuple, in addition to the stat
+    value.
+
+    The model's attributes are promoted to this class's namespace, so that any
+    attribute and method of ``model`` may be called directly from this class.
 
     This class must be initalized prior to the creation of a ``Pool`` object.
 
@@ -45,17 +54,49 @@ class CallModel(object):
     ----------
     model : Model instance
         The model to call.
-    callfunction : str
+    callstat : str
         The statistic to call.
-    return_stats : bool, optional
+    return_all_stats : bool, optional
         Whether or not to return all of the other statistics along with the
-        ``callfunction`` value.
+        ``callstat`` value.
+
+    Examples
+    --------
+    Create a wrapper around an instance of the ``TestNormal`` model, with the
+    ``callstat`` set to ``logposterior``:
+
+    >>> from gwin.models import TestNormal, CallModel
+    >>> model = TestNormal(['x', 'y'])
+    >>> call_model = CallModel(model, 'logposterior')
+
+    Now call on a set of parameter values:
+
+    >>> call_model([0.1, -0.2])
+    (-1.8628770664093453, (0.0, 0.0, -1.8628770664093453))
+
+    Note that a tuple of all of the model's ``default_stats`` were returned in
+    addition to the ``logposterior`` value. We can shut this off by toggling
+    ``return_all_stats``:
+
+    >>> call_model.return_all_stats = False
+    >>> call_model([0.1, -0.2])
+    -1.8628770664093453
+
+    Attributes of the model can be called from the call model. For example:
+
+    >>> call_model.variable_params
+    ('x', 'y')
+
     """
 
-    def __init__(self, model, callfunction, return_all_stats=True):
+    def __init__(self, model, callstat, return_all_stats=True):
         self.model = model
-        self.callfunction = callfunction
+        self.callstat = callstat
         self.return_all_stats = return_all_stats
+
+    def __getattr__(self, attr):
+        """Adds the models attributes to self."""
+        return getattr(self.model, attr)
 
     def __call__(self, param_values):
         """Updates the model with the given parameter values, then calls the
@@ -79,9 +120,9 @@ class CallModel(object):
         """
         params = dict(zip(self.model.sampling_params, param_values))
         self.model.update(**params)
-        val = getattr(self, model, self.callfunction)
-        if self.return_stats:
-            return val, self.model.current_stats
+        val = getattr(self.model, self.callstat)
+        if self.return_all_stats:
+            return val, self.model.get_current_stats()
         else:
             return val
 
