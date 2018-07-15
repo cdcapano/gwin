@@ -373,7 +373,7 @@ class BaseMCMCSampler(_BaseSampler):
         # blobs, they will be changed to `nan`s
         arrays = {field: stats[..., fi].astype(float)
                   for fi, field in
-                  enumerate(self.model.metadata_fields)}
+                  enumerate(self.model.default_stats)}
         return FieldArray.from_kwargs(**arrays).transpose()
 
     # write and read functions
