@@ -169,8 +169,7 @@ class GaussianNoise(BaseDataModel):
     Since there is no noise, the SNR should be the same as the quadrature sum
     of the optimal SNRs in each detector:
 
-    >>> (model.current_stats['H1_optimal_snrsq'] +
-         model.current_stats['L1_optimal_snrsq'])**0.5
+    >>> (model.det_optimal_snrsq('H1') + model.det_optimal_snrsq('L1'))**0.5
     23.62038467391764
 
     Using the same model, evaluate the log likelihood ratio at several points
@@ -354,6 +353,71 @@ class GaussianNoise(BaseDataModel):
         # since the loglr has fewer terms, we'll call that, then just add
         # back the noise term that canceled in the log likelihood ratio
         return self.loglr + self.lognl
+
+    def det_lognl(self, det):
+        """Returns the log likelihood of the noise in the given detector.
+        
+        Parameters
+        ----------
+        det : str
+            The name of the detector.
+
+        Returns
+        -------
+        float :
+            The log likelihood of the noise in the requested detector.
+        """
+        try:
+            return self.__det_lognls[det]
+        except AttributeError:
+            # hasn't been calculated yet, call lognl to calculate & store
+            self._lognl()
+            # now try returning
+            return self.__det_lognls[det]
+
+    def det_cplx_loglr(self, det):
+        """Returns the complex log likelihood ratio in the given detector.
+        
+        Parameters
+        ----------
+        det : str
+            The name of the detector.
+
+        Returns
+        -------
+        complex float :
+            The complex log likelihood ratio.
+        """
+        # try to get it from current stats
+        try:
+            return getattr(self._current_stats, '{}_cplx_loglr'.format(det))
+        except AttributeError:
+            # hasn't been calculated yet; call loglr to do so
+            self.loglr
+            # now try returning again
+            return getattr(self._current_stats, '{}_cplx_loglr'.format(det))
+
+    def det_optimal_snrsq(self, det):
+        """Returns the opitmal SNR squared in the given detector.
+        
+        Parameters
+        ----------
+        det : str
+            The name of the detector.
+
+        Returns
+        -------
+        float :
+            The opimtal SNR squared.
+        """
+        # try to get it from current stats
+        try:
+            return getattr(self._current_stats, '{}_optimal_snrsq'.format(det))
+        except AttributeError:
+            # hasn't been calculated yet; call loglr to do so
+            self.loglr
+            # now try returning again
+            return getattr(self._current_stats, '{}_optimal_snrsq'.format(det))
 
 
 class MarginalizedPhaseGaussianNoise(GaussianNoise):
