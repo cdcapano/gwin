@@ -65,7 +65,7 @@ class ModelStats(object):
 
     def getstats(self, names, default=numpy.nan):
         """Get the requested stats as a tuple.
-        
+
         If a requested stat is not an attribute (implying it hasn't been
         stored), then the default value is returned for that stat.
 
@@ -86,7 +86,7 @@ class ModelStats(object):
 
     def getstatsdict(self, names, default=numpy.nan):
         """Get the requested stats as a dictionary.
-        
+
         If a requested stat is not an attribute (implying it hasn't been
         stored), then the default value is returned for that stat.
 
@@ -308,7 +308,7 @@ class BaseModel(object):
     using the ``update`` method. Calling the class's
     ``log(likelihood|prior|posterior)`` properties will then evaluate the model
     at those parameter values.
-    
+
     Classes that inherit from this class must implement a ``_loglikelihood``
     function that can be called by ``loglikelihood``.
 
@@ -401,7 +401,7 @@ class BaseModel(object):
 
     def update(self, **params):
         """Updates the current parameter positions and resets stats.
-        
+
         If any sampling transforms are specified, they are applied to the
         params before being stored.
         """
@@ -442,7 +442,7 @@ class BaseModel(object):
         if names is None:
             names = self.default_stats
         return self._current_stats.getstats(names)
-        
+
     @property
     def current_stats(self):
         """Return the ``default_stats`` as a dict.
@@ -523,7 +523,7 @@ class BaseModel(object):
                 logp = -numpy.inf
             # add to current stats
             self._current_stats.logprior = logp
-        return logp 
+        return logp
 
     @property
     def logposterior(self):

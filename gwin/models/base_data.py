@@ -39,7 +39,7 @@ class BaseDataModel(BaseModel):
     r"""Base class for models that require data and a waveform generator.
 
     This adds propeties for the log of the likelihood that the data contain
-    noise, ``lognl``, and the log likelihood ratio ``loglr``. 
+    noise, ``lognl``, and the log likelihood ratio ``loglr``.
 
     Classes that inherit from this class must define ``_loglr`` and ``_lognl``
     functions, in addition to the ``_loglikelihood`` requirement inherited from

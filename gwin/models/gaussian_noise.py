@@ -326,8 +326,8 @@ class GaussianNoise(BaseDataModel):
                 # whiten the waveform
                 h[self._kmin:kmax] *= self._weight[det][slc]
                 # the inner products
-                cplx_hd = self.data[det][slc].inner(h[slc]) # <h, d>
-                hh = h[slc].inner(h[slc]).real # < h, h>
+                cplx_hd = self.data[det][slc].inner(h[slc])  # <h, d>
+                hh = h[slc].inner(h[slc]).real  # < h, h>
             cplx_loglr = cplx_hd - 0.5*hh
             # store
             setattr(self._current_stats, '{}_optimal_snrsq'.format(det), hh)
@@ -458,7 +458,7 @@ class MarginalizedPhaseGaussianNoise(GaussianNoise):
 
         Returns
         -------
-        float 
+        float
             The value of the log likelihood ratio evaluated at the given point.
         """
         params = self.current_params
