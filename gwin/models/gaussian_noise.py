@@ -356,7 +356,7 @@ class GaussianNoise(BaseDataModel):
 
     def det_lognl(self, det):
         """Returns the log likelihood of the noise in the given detector.
-        
+
         Parameters
         ----------
         det : str
@@ -377,7 +377,7 @@ class GaussianNoise(BaseDataModel):
 
     def det_cplx_loglr(self, det):
         """Returns the complex log likelihood ratio in the given detector.
-        
+
         Parameters
         ----------
         det : str
@@ -399,7 +399,7 @@ class GaussianNoise(BaseDataModel):
 
     def det_optimal_snrsq(self, det):
         """Returns the opitmal SNR squared in the given detector.
-        
+
         Parameters
         ----------
         det : str
