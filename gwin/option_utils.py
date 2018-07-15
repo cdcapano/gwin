@@ -165,7 +165,7 @@ def sampler_from_cli(opts, model, pool=None):
         A sampler initialized based on the given arguments.
     """
     # create a wrapper for the model
-    model = models.CallModel(model, opts.logpost_function) 
+    model = models.CallModel(model, opts.logpost_function)
 
     # Used to help paralleize over multiple cores / MPI
     if opts.nprocesses > 1:

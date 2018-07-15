@@ -235,7 +235,7 @@ class _callprior(object):
 
     def __call__(self, args):
         prior = self.callable(args, callstat='logprior',
-            return_all_stats=False)
+                              return_all_stats=False)
         return prior
 
 
