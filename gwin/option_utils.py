@@ -138,6 +138,14 @@ def add_sampler_option_group(parser):
     sampler_group.add_argument(
         "--use-mpi", action='store_true', default=False,
         help="Use MPI to parallelize the sampler")
+    sampler_group.add_argument(
+        "--logpost-function", default="logposterior",
+        help="Which attribute of the model to use for the logposterior. "
+             "The default is logposterior. For example, if using the "
+             "gaussian_noise model, you may wish to set this to logplr, since "
+             "the logposterior includes a large constant contribution from "
+             "log noise likelihood.")
+
     return sampler_group
 
 
@@ -156,6 +164,9 @@ def sampler_from_cli(opts, model, pool=None):
     gwin.sampler
         A sampler initialized based on the given arguments.
     """
+    # create a wrapper for the model
+    model = models.ModelCall(model, opts.logpost_function) 
+
     # Used to help paralleize over multiple cores / MPI
     if opts.nprocesses > 1:
         models._global_instance = model
