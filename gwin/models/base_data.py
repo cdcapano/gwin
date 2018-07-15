@@ -103,12 +103,7 @@ class BaseDataModel(BaseModel):
         If that raises an ``AttributeError``, will call `_lognl`` to
         calculate it and store it to ``current_stats``.
         """
-        try:
-            return self._current_stats.lognl
-        except AttributeError:
-            lognl = self._lognl()
-            self._current_stats.lognl = lognl
-            return lognl
+        return self._trytoget('lognl', self._lognl)
 
     @abstractmethod
     def _lognl(self):
@@ -123,12 +118,7 @@ class BaseDataModel(BaseModel):
         If that raises an ``AttributeError``, will call `_loglr`` to
         calculate it and store it to ``current_stats``.
         """
-        try:
-            return self._current_stats.loglr
-        except AttributeError:
-            loglr = self._loglr()
-            self._current_stats.loglr = loglr
-            return loglr
+        return self._trytoget('loglr', self._loglr)
 
     @abstractmethod
     def _loglr(self):

@@ -458,6 +458,35 @@ class BaseModel(object):
         """
         return self._current_stats.getstatsdict(self.default_stats)
 
+    def _trytoget(self, statname, fallback, **kwargs):
+        """Helper function to get a stat from ``_current_stats``.
+
+        If the statistic hasn't been calculated, ``_current_stats`` will raise
+        an ``AttributeError``. In that case, the ``fallback`` function will
+        be called. If that call is successful, the ``statname`` will be added
+        to ``_current_stats`` with the returned value.
+
+        Parameters
+        ----------
+        statname : str
+            The stat to get from ``current_stats``.
+        fallback : method of self
+            The function to call if the property call fails.
+        \**kwargs :
+            Any other keyword arguments are passed through to the function.
+
+        Returns
+        -------
+        float :
+            The value of the property.
+        """
+        try:
+            return getattr(self._current_stats, statname)
+        except AttributeError:
+            val = fallback(**kwargs)
+            setattr(self._current_stats, statname, val)
+            return val
+
     @property
     def loglikelihood(self):
         """The log likelihood at the current parameters.
@@ -466,12 +495,7 @@ class BaseModel(object):
         If that raises an ``AttributeError``, will call `_loglikelihood`` to
         calculate it and store it to ``current_stats``.
         """
-        try:
-            return self._current_stats.loglikelihood
-        except AttributeError:
-            logl = self._loglikelihood()
-            self._current_stats.loglikelihood = logl
-            return logl
+        return self._trytoget('loglikelihood', self._loglikelihood)
 
     @abstractmethod
     def _loglikelihood(self):
@@ -496,33 +520,28 @@ class BaseModel(object):
         float :
             The value of the jacobian.
         """
-        try:
-            logj = self._current_stats.logjacobian
-        except AttributeError:
-            # hasn't been calculated on these params yet
-            if self.sampling_transforms is None:
-                logj = 0.
-            else:
-                logj = self.sampling_transforms.logjacobian(
-                    **self.current_params)
-            # add to current stats
-            self._current_stats.logjacobian = logj
+        return self._trytoget('logjacobian', self._logjacobian)
+
+    def _logjacobian(self):
+        """Calculates the logjacobian of the current parameters."""
+        if self.sampling_transforms is None:
+            logj = 0.
+        else:
+            logj = self.sampling_transforms.logjacobian(
+                **self.current_params)
         return logj
 
     @property
     def logprior(self):
-        """Returns the prior at the current parameter points.
-        """
-        try:
-            logp = self._current_stats.logprior
-        except AttributeError:
-            # hasn't been calculated on these params yet
-            logj = self.logjacobian
-            logp = self.prior_distribution(**self.current_params) + logj
-            if numpy.isnan(logp):
-                logp = -numpy.inf
-            # add to current stats
-            self._current_stats.logprior = logp
+        """Returns the log prior at the current parameters."""
+        return self._trytoget('logprior', self._logprior)
+
+    def _logprior(self):
+        """Calculates the log prior at the current parameters."""
+        logj = self.logjacobian
+        logp = self.prior_distribution(**self.current_params) + logj
+        if numpy.isnan(logp):
+            logp = -numpy.inf
         return logp
 
     @property
