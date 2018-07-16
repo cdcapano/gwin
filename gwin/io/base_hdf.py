@@ -229,6 +229,7 @@ class BaseInferenceFile(h5py.File):
             cmd = cmd[-1]
         return cmd
 
+
     def write_metadata(self, sampler, **kwargs):
         """Writes the sampler's metadata.
 
@@ -243,24 +244,12 @@ class BaseInferenceFile(h5py.File):
             key is then stored as a separate attr with its corresponding value.
         """
         self.attrs['sampler'] = samlper.name
-        self.attrs['model'] = sampler.model.name
-        self.attrs['variable_params'] = list(sampler.variable_params)
-        self.attrs['sampling_params'] = list(sampler.sampling_params)
+        # write the model's metadata
+        sampler.model.write_metadata(self)
+        write_kwargs_to_hdf_attrs(self.attrs, **kwargs)
         # FIXME: what will write this?
         #fp.attrs["lognl"] = self.model.lognl
         # add the static params to the kwargs
-        kwargs['static_params'] = sampler.static_params
-        for arg, val in kwargs.items():
-            if val is None:
-                val = str(None)
-            if isinstance(val, dict):
-                self.attrs[arg] = val.keys()
-                for key, item in val.items():
-                    if item is None:
-                        item = str(None)
-                    self.attrs[key] = item
-            else:
-                self.attrs[arg] = val
 
     def write_logevidence(self, lnz, dlnz):
         """Writes the given log evidence and its error.
@@ -336,11 +325,6 @@ class BaseInferenceFile(h5py.File):
         cached_gauss = self[dataset_name].attrs["cached_gauss"]
         return s, arr, pos, has_gauss, cached_gauss
 
-    def load_random_state(self):
-        """Sets numpy's random state using what is saved in the file.
-        """
-        numpy.random.set_state(self.read_random_state())
-
     def write_strain(self, strain_dict, group=None):
         """Writes strain for each IFO to file.
 
@@ -384,72 +368,24 @@ class BaseInferenceFile(h5py.File):
             self[group.format(ifo=ifo)].attrs['delta_f'] = stilde.delta_f
             self[group.format(ifo=ifo)].attrs['epoch'] = float(stilde.epoch)
 
-    def write_psd(self, psds, low_frequency_cutoff, group=None):
+    def write_psd(self, psds, group=None):
         """Writes PSD for each IFO to file.
 
         Parameters
         -----------
         psds : {dict, FrequencySeries}
             A dict of FrequencySeries where the key is the IFO.
-        low_frequency_cutoff : {dict, float}
-            A dict of the low-frequency cutoff where the key is the IFO. The
-            minimum value will be stored as an attr in the File.
         group : {None, str}
-            The group to write the strain to. If None, will write to the top
-            level.
+            The group to write the psd to. Default is ``data_group``.
         """
         subgroup = self.data_group + "/{ifo}/psds/0"
         if group is None:
             group = subgroup
         else:
             group = '/'.join([group, subgroup])
-        self.attrs["low_frequency_cutoff"] = min(low_frequency_cutoff.values())
         for ifo in psds:
             self[group.format(ifo=ifo)] = psds[ifo]
             self[group.format(ifo=ifo)].attrs['delta_f'] = psds[ifo].delta_f
-
-    def write_data(self, strain_dict=None, stilde_dict=None,
-                   psd_dict=None, low_frequency_cutoff_dict=None,
-                   group=None):
-        """Writes the strain/stilde/psd.
-
-        Parameters
-        ----------
-        strain_dict : {None, dict}
-            A dictionary of strains. If None, no strain will be written.
-        stilde_dict : {None, dict}
-            A dictionary of stilde. If None, no stilde will be written.
-        psd_dict : {None, dict}
-            A dictionary of psds. If None, no psds will be written.
-        low_freuency_cutoff_dict : {None, dict}
-            A dictionary of low frequency cutoffs used for each detector in
-            `psd_dict`; must be provided if `psd_dict` is not None.
-        group : {None, str}
-            The group to write the strain to. If None, will write to the top
-            level.
-        """
-        # save PSD
-        if psd_dict is not None:
-            if low_frequency_cutoff_dict is None:
-                raise ValueError("must provide low_frequency_cutoff_dict if "
-                                 "saving psds to output")
-            # apply dynamic range factor for saving PSDs since
-            # plotting code expects it
-            psd_dyn_dict = {}
-            for key, val in psd_dict.iteritems():
-                psd_dyn_dict[key] = FrequencySeries(val*DYN_RANGE_FAC**2,
-                                                    delta_f=val.delta_f)
-            self.write_psd(psds=psd_dyn_dict,
-                           low_frequency_cutoff=low_frequency_cutoff_dict,
-                           group=group)
-
-        # save stilde
-        if stilde_dict is not None:
-            self.write_stilde(stilde_dict, group=group)
-
-        # save strain if desired
-        if strain_dict is not None:
-            self.write_strain(strain_dict, group=group)
 
     def write_injections(self, injection_file):
         """Writes injection parameters from the given injection file.
@@ -666,6 +602,31 @@ class BaseInferenceFile(h5py.File):
         #    other.attrs['burn_in_iterations'] = 0
         #    other.attrs['niterations'] = samples.shape[-1]
         #return other
+
+
+def write_kwargs_to_hdf_attrs(attrs, **kwargs):
+    """Writes the given keywords to the given ``attrs``.
+    
+    If any keyword argument points to a dict, the keyword will point to a
+    list of the dict's keys. Each key is then written to the attrs with its
+    corresponding value.
+
+    Parameters
+    ----------
+    attrs : an HDF attrs
+        Can be either the ``attrs`` of the hdf file, or any group in a file.
+    \**kwargs :
+        The keywords to write.
+    """
+    for arg, val in kwargs.items():
+        if val is None:
+            val = str(None)
+        if isinstance(val, dict):
+            attrs[arg] = val.keys()
+            # just call self again with the dict as kwargs
+            write_kwargs_to_hdf_attrs(attrs, **val)
+        else:
+            attrs[arg] = val
 
 
 def check_integrity(filename):
