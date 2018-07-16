@@ -262,6 +262,7 @@ def create_new_output_file(sampler, filename, force=False, injection_file=None,
             # just use the first one
             fp.write_injections(injection_file)
 
+
 def intial_dist_from_config(cp):
     """Loads a distribution for the sampler start from the given config file.
 
