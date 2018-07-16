@@ -229,7 +229,6 @@ class BaseInferenceFile(h5py.File):
             cmd = cmd[-1]
         return cmd
 
-
     def write_metadata(self, sampler, **kwargs):
         """Writes the sampler's metadata.
 
@@ -247,9 +246,6 @@ class BaseInferenceFile(h5py.File):
         # write the model's metadata
         sampler.model.write_metadata(self)
         write_kwargs_to_hdf_attrs(self.attrs, **kwargs)
-        # FIXME: what will write this?
-        #fp.attrs["lognl"] = self.model.lognl
-        # add the static params to the kwargs
 
     def write_logevidence(self, lnz, dlnz):
         """Writes the given log evidence and its error.

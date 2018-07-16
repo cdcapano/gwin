@@ -21,9 +21,88 @@
 #
 # =============================================================================
 #
-"""Provides constructor classes for MCMC samplers."""
+"""Provides constructor classes and convenience functions for MCMC samplers."""
 
 from abc import ABCMeta, abstractmethod, abstractproperty
+
+#
+# =============================================================================
+#
+#                              Convenience functions
+#
+# =============================================================================
+#
+def raw_samples_to_dict(sampler, raw_samples):
+    """Convenience function for converting ND array to a dict of samples.
+
+    The samples are assumed to have dimension
+    ``[sampler.base_shape x] niterations x len(sampler.sampling_params)``.
+
+    Parameters
+    ----------
+    sampler : sampler instance
+        An instance of an MCMC sampler.
+    raw_samples : array
+        The array of samples to convert.
+
+    Returns
+    -------
+    dict :
+        A dictionary mapping the raw samples to the variable params. If the
+        sampling params are not the same as the variable params, they will
+        also be included. Each array will have shape
+        ``[sampler.base_shape x] niterations``.
+    """
+    sampling_params = sampler.sampling_params
+    # convert to dictionary
+    samples = {param: raw_samples[..., ii] for
+               ii, param in enumerate(sampling_params)}
+    # apply boundary conditions
+    samples = sampler.model.prior_distribution.apply_boundary_conditions(
+        **samples)
+    # apply transforms to go to model's variable params space
+    return sampler.model.sampling_transforms.apply(samples, inverse=True)
+
+
+def raw_stats_to_dict(sampler, raw_stats):
+    """Converts an ND array of model stats to a dict.
+
+    The ``raw_stats`` may either be a numpy array or a list. If the
+    former, the stats are assumed to have shape
+    ``[sampler.base_shape x] niterations x nstats, where nstats are the number
+    of stats returned by ``sampler.model.default_stats``. If the latter, the
+    list is cast to an array that is assumed to be the same shape as if an
+    array was given.
+
+    Parameters
+    ----------
+    sampler : sampler instance
+        An instance of an MCMC sampler.
+    raw_stats : array or list
+        The stats to convert.
+
+    Returns
+    -------
+    dict :
+        A dictionary mapping the model's ``default_stats`` to arrays of values.
+        Each array will have shape ``[sampler.base_shape x] niterations``.
+    """
+    if not isinstance(raw_stats, numpy.ndarray):
+        # Assume list. Since the model returns a tuple of values, this should
+        # be a [sampler.base_shape x] x niterations list of tuples. We can
+        # therefore immediately convert this to a ND array.
+        raw_stats = numpy.array(raw_stats)
+    return {stat: raw_stats[..., ii]
+            for (ii, stat) in enumerate(self.model.default_stats)}
+
+#
+# =============================================================================
+#
+#                              BaseMCMC definition
+#
+# =============================================================================
+#
+
 
 class BaseMCMC(object):
     """This class provides methods common to MCMCs.
@@ -43,15 +122,21 @@ class BaseMCMC(object):
     """
     __metaclass__ = ABCMeta
 
-    lastclear = None
+    _lastclear = None
     _itercounter = None
     _pos = None
     _p0 = None
     _nwalkers = None
 
     @abstractproperty(self):
-    def samples_shape(self):
-        """Should define what shape to expect samples to be in."""
+    def base_shape(self):
+        """What shape the sampler's samples arrays are in, excluding 
+        the iterations dimension.
+        
+        For example, if a sampler uses 20 walkers and 3 temperatures, this
+        would be ``(3, 20)``. If a sampler only uses a single walker and no
+        temperatures this would be ``()``.
+        """
         pass
 
     @property
@@ -67,7 +152,7 @@ class BaseMCMC(object):
         itercounter = self._itercounter
         if _itercounter is None:
             itercounter = 0
-        lastclear = self.lastclear
+        lastclear = self._lastclear
         if lastclear is None:
             lastclear = 0
         return itercounter + lastclear
@@ -119,11 +204,11 @@ class BaseMCMC(object):
                 samples = fp.read_samples(self.variable_params,
                                           iteration=-1)
                 # make sure we have the same shape
-                assert(samples.shape == self.samples_shape,
+                assert(samples.shape[:-1] == self.samples_shape,
                        "samples in file {} have shape {}, but I have shape {}".
                        format(samples_file, samples.shape, self.samples_shape))
             # transform to sampling parameter space
-            samples = self.model.apply_sampling_transforms(samples)
+            samples = self.model.sampling_transforms.apply(samples)
         # draw random samples if samples are not provided
         else:
             nsamples = numpy.prod(self.samples_shape)
@@ -137,29 +222,142 @@ class BaseMCMC(object):
         self._p0 = p0
         return self.p0
 
-    @classmethod
-    def n_independent_samples(cls, fp):
-        """Returns the number of independent samples stored in a file.
+    def set_initial_conditions(self, initial_distribution=None,
+                               samples_file=None):
+        """Sets the initial starting point for the MCMC.
 
-        The number of independent samples are counted starting from after
-        burn-in. If the sampler hasn't burned in yet, then 0 is returned.
-
-        Parameters
-        -----------
-        fp : InferenceFile
-            An open file handler to read.
-
-        Returns
-        -------
-        int
-            The number of independent samples.
+        If a starting samples file is provided, will also load the random
+        state from it.
         """
-        # check if burned in
-        if not fp.is_burned_in:
-            return 0
-        # we'll just read a single parameter from the file
-        samples = cls.read_samples(fp, fp.variable_params[0])
-        return samples.size
+        self.set_p0(samples_file=samples_file, prior=initial_distribution)
+        # if a samples file was provided, use it to set the state of the
+        # sampler
+        if samples_file is not None:
+            self.set_state_from_file(samples_file)
+
+    @abstractmethod
+    def set_state_from_file(self, filename):
+        """Sets the state of the sampler to the instance saved in a file.
+        """
+        pass
+
+    @abstractmethod
+    def write_state(self, filename):
+        """Saves the state of the sampler to the given file.
+        """
+        pass
+
+    def run(self):
+        """Runs the sampler."""
+
+        if self.require_indep_samples and self.checkpoint_interval is None:
+            raise ValueError("A checkpoint interval must be set if "
+                             "independent samples are required")
+        # figure out how many iterations I need to run for: this is the target
+        # number of samples / the number of walkers
+        target_niters = self.target_nsamples / self.nwalkers
+
+        # get the starting number of samples:
+        # "nsamples" keeps track of the number of samples we've obtained (if
+        # require_indep_samples is used, this is the number of independent
+        # samples; otherwise, this is the total number of samples).
+        # "startiter" is the number of iterations that the file already contains
+        # (either due to sampler burn-in, or a previous checkpoint)
+        try:
+            with self.io(self.checkpoint_file, "r") as fp:
+                start = fp.niterations
+        except KeyError:
+            startiter = 0
+        if self.require_indep_samples:
+            with self.io(self.checkpoint_file, "r") as fp:
+                nsamples = fp.n_independent_samples
+        else:
+            # the number of samples is the number of iterations times the
+            # number of walkers
+            nsamples = startiter * self.nwalkers
+
+        # to ensure iterations are counted properly, the sampler's lastclear
+        # should be the same as start
+        self._lastclear = startiter
+
+        iterinterval = self.checkpoint_interval
+        if iterinterval is None:
+            iterinterval = int(numpy.ceil(
+                float(self.target_nsamples) / self.nwalkers))
+
+        # run sampler until we have the desired number of samples
+        while nsamples < self.target_nsamples:
+
+            enditer = startiter + iterinterval
+
+            # adjust the interval if we would go past the number of iterations
+            endnsamp = enditer * self.nwalkers
+            if endnsamp > self.target_nsamples \
+                    and not self.require_indep_samples:
+                iterinterval = int(numpy.ceil(
+                    (endnsamp - self.target_nsamples) / self.nwalkers))
+
+            # run sampler and set initial values to None so that sampler
+            # picks up from where it left off next call
+            logging.info("Running sampler for {} to {} iterations".format(
+                startiter, enditer))
+            self.run_mcmc(iterinterval)
+
+            # update nsamples for next loop
+            if opts.n_independent_samples is not None:
+                with InferenceFile(checkpoint_file, 'r') as fp:
+                    nsamples = fp.n_independent_samples
+                logging.info("Have {} independent samples".format(nsamples))
+            else:
+                nsamples += interval
+
+
+            # clear the in-memory chain to save memory
+            logging.info("Clearing chain")
+            sampler.clear_chain()
+
+            start = end
+
+    @abstractmethod
+    def run_for_niterations(self, niterations):
+        """Run the MCMC for the given number of iterations."""
+        pass
+
+    def checkpoint(self):
+        """Dumps current samples to the checkpoint file."""
+        # write new samples
+        with self.io(checkpoint_file, "a") as fp:
+
+            logging.info("Writing samples to file")
+            sampler.write_results(fp, static_params=model.static_params,
+                                  ifos=opts.instruments)
+            logging.info("Updating burn in")
+            burnidx, is_burned_in = burn_in_eval.update(sampler, fp)
+
+            # compute the acls and write
+            acls = None
+            if opts.n_independent_samples is not None or end >= get_nsamples \
+                    or not opts.checkpoint_fast:
+                logging.info("Computing acls")
+                acls = sampler.compute_acls(fp)
+                sampler.write_acls(fp, acls)
+
+        # write to backup
+        with InferenceFile(backup_file, "a") as fp:
+
+            logging.info("Writing to backup file")
+            sampler.write_results(fp, static_params=model.static_params,
+                                  ifos=opts.instruments)
+            sampler.write_burn_in_iterations(fp, burnidx, is_burned_in)
+            if acls is not None:
+                sampler.write_acls(fp, acls)
+
+        # check validity
+        checkpoint_valid = validate_checkpoint_files(checkpoint_file,
+                                                     backup_file)
+        if not checkpoint_valid:
+            raise IOError("error writing to checkpoint file")
+
 
     @classmethod
     def compute_acfs(cls, fp, start_index=None, end_index=None,
