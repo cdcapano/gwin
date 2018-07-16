@@ -29,10 +29,13 @@ packages for parameter estimation.
 from __future__ import absolute_import
 
 import numpy
+import emcee
 from pycbc.io import FieldArray
 from pycbc.filter import autocorrelation
+from pycbc.pool import choose_pool
 
-from .base import BaseMCMCSampler
+from .base import BaseSampler
+from .base_mcmc import (BaseMCMC, raw_samples_to_dict, raw_stats_to_dict)
 
 
 #
@@ -60,158 +63,103 @@ class EmceeEnsembleSampler(BaseMCMC, BaseSampler):
     """
     name = "emcee"
 
-    def __init__(self, model, nwalkers, pool=None,
-                 model_call=None):
-        try:
-            import emcee
-        except ImportError:
-            raise ImportError("emcee is not installed.")
+    def __init__(self, model, outfile, nwalkers,
+                 checkpoint_interval=None, resume_from_checkpoint=True,
+                 n_independent_samples=None, niterations=None,
+                 logpost_function=None,
+                 nprocesses=1, use_mpi=False):
 
-        if model_call is None:
-            model_call = model
+        self.model = model
+        # create a wrapper for calling the model
+        if logpost_function is None:
+            logpost_function = ='logposterior'
+        model_call = models.CallModel(model, logpost_function)
 
+        # Set up the pool
+        if nprocesses > 1:
+            # these are used to help paralleize over multiple cores / MPI
+            models._global_instance = model_call
+            model_call = models._call_global_model
+        pool = choose_pool(mpi=use_mpi, processes=nprocesses)
+        if pool is not None:
+            pool.count = nprocesses
+
+        self.outfile = outfile
+        self._nwalkers = nwalkers
+
+        # set up checkpointing
+        self.setup_checkpoint(outfile,
+            resume_from_checkpoint=resume_from_checkpoint)
+
+        # set up emcee
         ndim = len(model.variable_params)
-        sampler = emcee.EnsembleSampler(nwalkers, ndim,
-                                        model_call,
-                                        pool=pool)
+        self._sampler = emcee.EnsembleSampler(nwalkers, ndim, model_call,
+                                              pool=pool)
         # emcee uses it's own internal random number generator; we'll set it
         # to have the same state as the numpy generator
         rstate = numpy.random.get_state()
-        sampler.random_state = rstate
-        self._sampler = sampler
-        self._nwalkers = nwalkers
-
-    @classmethod
-    def from_cli(cls, opts, model, pool=None,
-                 model_call=None):
-        """Create an instance of this sampler from the given command-line
-        options.
-
-        Parameters
-        ----------
-        opts : ArgumentParser options
-            The options to parse.
-        model : LikelihoodEvaluator
-            The model to use with the sampler.
-
-        Returns
-        -------
-        EmceeEnsembleSampler
-            An emcee sampler initialized based on the given arguments.
-        """
-        return cls(model, opts.nwalkers,
-                   pool=pool, model_call=model_call)
+        self._sampler.random_state = rstate
 
     @property
-    def raw_samples(self):
-        """A dict mapping sampling_params to arrays of samples currently
+    def io(self):
+        return EmceeFile
+
+    def _write_more_metadata(self, fp):
+        """Adds nwalkers to the metadata."""
+        fp.attrs['nwalkers'] = self.nwalkers
+
+    @property
+    def base_shape(self):
+        return (self.nwalkers,)
+
+    @property
+    def samples(self):
+        """A dict mapping ``variable_params`` to arrays of samples currently
         in memory.
         
-        The arrays have shape ``nwalkers`` x ``niterations``.
+        The arrays have shape ``nwalkers x niterations``.
         """
-        # chain is a [additional dimensions x] niterations x ndim array
-        samples = self.chain
-        sampling_params = self.sampling_params
-        # convert to dictionary to apply boundary conditions
-        samples = {param: samples[..., ii] for
-                   ii, param in enumerate(sampling_params)}
-        samples = self.model._prior.apply_boundary_conditions(
-            **samples)
-        # now convert to field array
-        samples = FieldArray.from_arrays([samples[param]
-                                          for param in sampling_params],
-                                         names=sampling_params)
-        # apply transforms to go to model params space
-        return self.model.apply_sampling_transforms(
-            samples, inverse=True)
+        # emcee stores samples to it's chain attribute as a
+        # nwalker x niterations x ndim array
+        raw_samples = self._sampler.chain
+        return raw_samples_to_dict(self, raw_samples)
 
     @property
     def model_stats(self):
-        """Returns the model stats as a FieldArray, with field names
-        corresponding to the type of data returned by the model.
-        The returned array has shape nwalkers x niterations. If no additional
-        stats were returned to the sampler by the model, returns
-        None.
+        """A dict mapping the model's ``default_stats`` to arrays of values.
+        
+        The returned array has shape ``nwalkers x niterations``.
         """
-        stats = numpy.array(self._sampler.blobs)
-        if stats.size == 0:
-            return None
-        # we'll force arrays to float; this way, if there are `None`s in the
-        # blobs, they will be changed to `nan`s
-        arrays = {field: stats[..., fi].astype(float)
-                  for fi, field in
-                  enumerate(self.model.metadata_fields)}
-        return FieldArray.from_kwargs(**arrays).transpose()
+        return raw_samples_to_dict(self._sampler.blobs, raw_stats)
 
-    @property
-    def lnpost(self):
-        """Get the natural logarithm of the likelihood as an
-        nwalkers x niterations array.
-        """
-        # emcee returns nwalkers x niterations
-        return self._sampler.lnprobability
-
-    @property
-    def chain(self):
-        """Get all past samples as an nwalker x niterations x ndim array."""
-        # emcee returns the chain as nwalker x niterations x ndim
-        return self._sampler.chain
-
-    def clear_chain(self):
-        """Clears the chain and blobs from memory.
+    def clear_samples(self):
+        """Clears the samples and stats from memory.
         """
         # store the iteration that the clear is occuring on
-        self.lastclear = self.niterations
+        self._lastclear = self.niterations
         # now clear the chain
         self._sampler.reset()
         self._sampler.clear_blobs()
 
-    def set_p0(self, samples_file=None, prior=None):
-        """Sets the initial position of the walkers.
-
-        Parameters
-        ----------
-        samples_file : InferenceFile, optional
-            If provided, use the last iteration in the given file for the
-            starting positions.
-        prior : JointDistribution, optional
-            Use the given prior to set the initial positions rather than
-            ``model``'s prior.
-
-        Returns
-        -------
-        p0 : array
-            An nwalkers x ndim array of the initial positions that were set.
-        """
-        # we define set_p0 here to ensure that emcee's internal random number
-        # generator is set to numpy's after the distributions' rvs functions
-        # are called
-        super(EmceeEnsembleSampler, self).set_p0(samples_file=samples_file,
-                                                 prior=prior)
-        # update the random state
-        self._sampler.random_state = numpy.random.get_state()
-
-    def write_state(self, fp):
-        """Saves the state of the sampler in a file.
-        """
-        fp.write_random_state(state=self._sampler.random_state)
-
-    def set_state_from_file(self, fp):
+    def set_state_from_file(self, filename):
         """Sets the state of the sampler back to the instance saved in a file.
         """
-        rstate = fp.read_random_state()
+        with self.io(filename, 'r') as fp:
+            rstate = fp.read_random_state()
         # set the numpy random state
         numpy.random.set_state(rstate)
         # set emcee's generator to the same state
         self._sampler.random_state = rstate
 
-    def run(self, niterations, **kwargs):
+    def run_mcmc(self, niterations, **kwargs):
         """Advance the ensemble for a number of samples.
 
         Parameters
         ----------
         niterations : int
-            Number of samples to get from sampler.
+            Number of iterations to run the sampler for.
+        \**kwargs :
+            All other keyword arguments are passed to the emcee sampler.
 
         Returns
         -------
@@ -227,37 +175,44 @@ class EmceeEnsembleSampler(BaseMCMC, BaseSampler):
         if pos is None:
             pos = self.p0
         res = self._sampler.run_mcmc(pos, niterations, **kwargs)
-        p, lnpost, rstate = res[0], res[1], res[2]
+        p, _, _ = res[0], res[1], res[2]
         # update the positions
         self._pos = p
-        return p, lnpost, rstate
 
-    def write_results(self, fp, start_iteration=None,
-                      max_iterations=None, **metadata):
-        """Writes metadata, samples, model stats, and acceptance fraction
-        to the given file. See the write function for each of those for
-        details.
+    def write_results(self, filename):
+        """Writes samples, model stats, acceptance fraction, and random state
+        to the given file.
 
         Parameters
         -----------
-        fp : InferenceFile
-            A file handler to an open inference file.
-        start_iteration : int, optional
-            Write results to the file's datasets starting at the given
-            iteration. Default is to append after the last iteration in the
-            file.
-        max_iterations : int, optional
-            Set the maximum size that the arrays in the hdf file may be resized
-            to. Only applies if the samples have not previously been written
-            to file. The default (None) is to use the maximum size allowed by
-            h5py.
-        \**metadata :
-            All other keyword arguments are passed to ``write_metadata``.
+        filename : str
+            The file to write to. The file is opened using the ``io`` class
+            in an an append state.
         """
-        self.write_metadata(fp, **metadata)
-        self.write_chain(fp, start_iteration=start_iteration,
-                         max_iterations=max_iterations)
-        self.write_model_stats(fp, start_iteration=start_iteration,
-                               max_iterations=max_iterations)
-        self.write_acceptance_fraction(fp)
-        self.write_state(fp)
+        with self.io(filename, 'a') as fp:
+            # write samples
+            fp.write_samples(self.samples, self.model.variable_params)
+            # write stats
+            fp.write_samples(self.model_stats)
+            # write accpetance
+            fp.write_acceptance_fraction(self._sampler.acceptance_fraction)
+            # write random state
+            fp.write_random_state(state=self._sampler.random_state)
+
+
+    @classmethod
+    def from_config(cls, cp, model, outfile, nprocesses=1, use_mpi=False):
+        """Loads the sampler from the given config file."""
+        section = "sampler"
+        # check name
+        assert cp.get(section, "name") == cls.name, (
+            "name in section [sampler] must match mine")
+        # get the number of walkers to use
+        nwalkers = int(cp.get(section, "nwalkers"))
+        if cp.has_option(section, "logpost-function"):
+            lnpost = cp.get(section, "logpost-function")
+        else:
+            lnpost = None
+        return cls(model, outfile, nwalkers, logpost_function=lnpost,
+                   nprocesses=nprocesses, use_mpi=use_mpi)
+

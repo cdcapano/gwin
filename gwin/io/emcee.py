@@ -33,12 +33,10 @@ class EmceeFile(EnsembleMCMCIO, BaseInferenceFile):
     name = 'emcee_file'
 
     def read_acceptance_fraction(self, walkers=None):
-        """Reads the acceptance fraction from the given file.
+        """Reads the acceptance fraction.
 
         Parameters
         -----------
-        fp : InferenceFile
-            An open file handler to read the samples from.
         walkers : {None, (list of) int}
             The walker index (or a list of indices) to retrieve. If None,
             samples from all walkers will be obtained.
@@ -58,12 +56,12 @@ class EmceeFile(EnsembleMCMCIO, BaseInferenceFile):
 
     def write_acceptance_fraction(self, acceptance_fraction):
         """Write acceptance_fraction data to file. Results are written to
-        `fp[acceptance_fraction]`.
+        the ``[sampler_group]/acceptance_fraction``.
 
         Parameters
         -----------
-        fp : InferenceFile
-            A file handler to an open inference file.
+        acceptance_fraction : numpy.ndarray
+            Array of acceptance fractions to write.
         """
         group = self.sampler_group + '/acceptance_fraction'
         try:

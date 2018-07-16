@@ -51,18 +51,7 @@ class EnsembleMCMCIO(obect):
         """
         pass
 
-    def write_mcmc_metadata(self, sampler):
-        """Writes metadata unique to an ensemble MCMC.
-
-        Parameters
-        ----------
-        sampler : gwin.sampler
-            An instance of a gwin sampler.
-        """
-        self.attrs["niterations"] = sampler.niterations
-        self.attrs["nwalkers"] = sampler.nwalkers
-
-    def write_samples(self, parameters, samples,
+    def write_samples(self, samples, parameters=None,
                       start_iteration=None, max_iterations=None):
         """Writes samples to the given file.
 
@@ -75,11 +64,12 @@ class EnsembleMCMCIO(obect):
 
         Parameters
         -----------
-        parameters : list
-            The parameters to write to the file.
         samples : dict
             The samples to write. Each array in the dictionary should have
             shape nwalkers x niterations.
+        parameters : list, optional
+            Only write the specified parameters to the file. If None, will
+            write all of the keys in the ``samples`` dict.
         start_iteration : int, optional
             Write results to the file's datasets starting at the given
             iteration. Default is to append after the last iteration in the

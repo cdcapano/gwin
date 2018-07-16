@@ -36,7 +36,7 @@ import logging
 #
 # =============================================================================
 #
-#                                   Samplers
+#                           Base Sampler definition
 #
 # =============================================================================
 #
@@ -133,6 +133,24 @@ class BaseSampler(object):
         """
         pass
 
+    @abstractmethod
+    def finalize(self):
+        """Do any finalization to the samples file before exiting."""
+        pass
+
+    def write_metadata(self, fp):
+        """Writes metadata about the sampler to the given filehandler."""
+        fp.attrs['sampler'] = self.name
+        # write the model's metadata
+        self.model.write_metadata(fp)
+        self._write_more_metadata(fp)
+        
+    def _write_more_metadata(self, fp):
+        """Optional method that can be implemented if a sampler wants to write
+        more metadata than just its name and the model's metadata.
+        """
+        pass
+
     def setup_output(self, output_file, force=False, injection_file=None):
         """Sets up the sampler's checkpoint and output files.
 
@@ -199,6 +217,13 @@ class BaseSampler(object):
         self.require_indep_samples = require_independent
 
 
+#
+# =============================================================================
+#
+#                           Convenience functions
+#
+# =============================================================================
+#
 
 def create_new_output_file(sampler, filename, force=False, injection_file=None,
                            **kwargs):
@@ -230,9 +255,39 @@ def create_new_output_file(sampler, filename, force=False, injection_file=None,
     logging.info("Creating file {}".format(filename))
     with sampler.io(filename, "w") as fp:
         # save the sampler's metadata
-        fp.write_metadata(sampler)
+        sampler.write_metadata(fp)
         # save injection parameters
         if injection_file is not None:
             logging.info("Writing injection file to output")
             # just use the first one
             fp.write_injections(injection_file)
+
+def intial_dist_from_config(cp):
+    """Loads a distribution for the sampler start from the given config file.
+
+    A distribution will only be loaded if the config file has a [initial-*]
+    section(s).
+
+    Parameters
+    ----------
+    cp : Config parser
+        The config parser to try to load from.
+
+    Returns
+    -------
+    JointDistribution or None :
+        The initial distribution. If no [initial-*] section found in the
+        config file, will just return None.
+    """
+    if len(cp.get_subsections("initial")):
+        logging.info("Using a different distribution for the starting points "
+                     "than the prior.")
+        initial_dists = distributions.read_distributions_from_config(
+            cp, section="initial")
+        constraints = distributions.read_constraints_from_config(cp,
+            constraint_section="initial_constraint")
+        init_dist = distributions.JointDistribution(sampler.variable_params,
+            *initial_dists, **{"constraints" : constraints})
+    else:
+        init_dist = None
+    return init_dist

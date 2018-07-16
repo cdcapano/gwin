@@ -24,6 +24,8 @@
 """Provides constructor classes and convenience functions for MCMC samplers."""
 
 from abc import ABCMeta, abstractmethod, abstractproperty
+import logging
+import numpy
 
 #
 # =============================================================================
@@ -253,10 +255,6 @@ class BaseMCMC(object):
         if self.require_indep_samples and self.checkpoint_interval is None:
             raise ValueError("A checkpoint interval must be set if "
                              "independent samples are required")
-        # figure out how many iterations I need to run for: this is the target
-        # number of samples / the number of walkers
-        target_niters = self.target_nsamples / self.nwalkers
-
         # get the starting number of samples:
         # "nsamples" keeps track of the number of samples we've obtained (if
         # require_indep_samples is used, this is the number of independent
@@ -270,83 +268,82 @@ class BaseMCMC(object):
             startiter = 0
         if self.require_indep_samples:
             with self.io(self.checkpoint_file, "r") as fp:
-                nsamples = fp.n_independent_samples
+                nsamples = fp.n_indep_samples
         else:
             # the number of samples is the number of iterations times the
             # number of walkers
             nsamples = startiter * self.nwalkers
-
         # to ensure iterations are counted properly, the sampler's lastclear
         # should be the same as start
         self._lastclear = startiter
-
+        # keep track of the number of iterations we've done
+        self._itercounter = startiter
+        # figure out the interval to use
         iterinterval = self.checkpoint_interval
         if iterinterval is None:
             iterinterval = int(numpy.ceil(
                 float(self.target_nsamples) / self.nwalkers))
-
         # run sampler until we have the desired number of samples
         while nsamples < self.target_nsamples:
-
             enditer = startiter + iterinterval
-
             # adjust the interval if we would go past the number of iterations
             endnsamp = enditer * self.nwalkers
             if endnsamp > self.target_nsamples \
                     and not self.require_indep_samples:
                 iterinterval = int(numpy.ceil(
                     (endnsamp - self.target_nsamples) / self.nwalkers))
-
             # run sampler and set initial values to None so that sampler
             # picks up from where it left off next call
             logging.info("Running sampler for {} to {} iterations".format(
                 startiter, enditer))
+            # run the underlying sampler for the desired interval
             self.run_mcmc(iterinterval)
-
+            # dump the current results
+            self.checkpoint()
             # update nsamples for next loop
-            if opts.n_independent_samples is not None:
-                with InferenceFile(checkpoint_file, 'r') as fp:
-                    nsamples = fp.n_independent_samples
+            if self.require_indep_samples:
+                nsamples = self.n_indep_samples
                 logging.info("Have {} independent samples".format(nsamples))
             else:
-                nsamples += interval
+                nsamples += iterinterval * self.nwalkers
+            self._itercounter = startiter = enditer
 
-
-            # clear the in-memory chain to save memory
-            logging.info("Clearing chain")
-            sampler.clear_chain()
-
-            start = end
+    @abstractproperty
+    def n_indep_samples(self):
+        """Should return the number of independent samples the sampler has
+        acquired so far."""
+        pass
 
     @abstractmethod
-    def run_for_niterations(self, niterations):
+    def run_mcmc(self, niterations):
         """Run the MCMC for the given number of iterations."""
         pass
 
     def checkpoint(self):
         """Dumps current samples to the checkpoint file."""
         # write new samples
+        logging.info("Writing samples to file")
+        self.write_results(self.checkpoint_file)
+        # write other stuff
         with self.io(checkpoint_file, "a") as fp:
-
-            logging.info("Writing samples to file")
-            sampler.write_results(fp, static_params=model.static_params,
-                                  ifos=opts.instruments)
-            logging.info("Updating burn in")
-            burnidx, is_burned_in = burn_in_eval.update(sampler, fp)
+            # write the current number of iterations
+            fp.attrs['niterations'] = self.niterations
+            # FIXME
+            # logging.info("Updating burn in")
+            # burnidx, is_burned_in = burn_in_eval.update(self, fp)
 
             # compute the acls and write
             acls = None
-            if opts.n_independent_samples is not None or end >= get_nsamples \
-                    or not opts.checkpoint_fast:
+            if self.require_indep_samples:
                 logging.info("Computing acls")
-                acls = sampler.compute_acls(fp)
+                acls = self.compute_acls(fp)
                 sampler.write_acls(fp, acls)
 
         # write to backup
         with InferenceFile(backup_file, "a") as fp:
 
             logging.info("Writing to backup file")
-            sampler.write_results(fp, static_params=model.static_params,
+            sampler.write_results(fp,
                                   ifos=opts.instruments)
             sampler.write_burn_in_iterations(fp, burnidx, is_burned_in)
             if acls is not None:
@@ -357,6 +354,10 @@ class BaseMCMC(object):
                                                      backup_file)
         if not checkpoint_valid:
             raise IOError("error writing to checkpoint file")
+
+        # clear the in-memory chain to save memory
+        logging.info("Clearing chain")
+        self.clear_chain()
 
 
     @classmethod

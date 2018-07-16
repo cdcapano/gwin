@@ -204,11 +204,11 @@ class BaseInferenceFile(h5py.File):
         return {arg: self.attrs[arg] for arg in self.attrs["static_params"]}
 
     @property
-    def n_independent_samples(self):
+    def n_indep_samples(self):
         """Returns the number of independent samples stored in the file.
         """
         try:
-            return self.attrs['n_independent_samples']
+            return self.attrs['n_indep_samples']
         except KeyError:
             return 0
 
@@ -228,24 +228,6 @@ class BaseInferenceFile(h5py.File):
         if isinstance(cmd, numpy.ndarray):
             cmd = cmd[-1]
         return cmd
-
-    def write_metadata(self, sampler, **kwargs):
-        """Writes the sampler's metadata.
-
-        Parameters
-        ----------
-        sampler : gwin.sampler
-            An instance of a gwin sampler.
-        **kwargs :
-            All keyword arguments are saved as separate arguments in the
-            file attrs. If any keyword argument is a dictionary, the keyword
-            will point to the list of keys in the the file's ``attrs``. Each
-            key is then stored as a separate attr with its corresponding value.
-        """
-        self.attrs['sampler'] = samlper.name
-        # write the model's metadata
-        sampler.model.write_metadata(self)
-        write_kwargs_to_hdf_attrs(self.attrs, **kwargs)
 
     def write_logevidence(self, lnz, dlnz):
         """Writes the given log evidence and its error.
