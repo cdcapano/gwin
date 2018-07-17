@@ -361,7 +361,7 @@ class BaseMCMCSampler(_BaseSampler):
         if self.model.sampling_transforms is not None:
             samples = self.model.sampling_transforms.apply(samples,
                                                            inverse=True)
-        return samples 
+        return samples
 
     @property
     def model_stats(self):
