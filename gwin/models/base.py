@@ -700,7 +700,7 @@ class BaseModel(object):
         # Requires PyCBC 1.11.2
         variable_params, static_params = distributions.read_params_from_config(
             cp, prior_section=prior_section, vargs_section=vparams_section,
-            sparams_section=sparams_section)
+            sargs_section=sparams_section)
         # get prior
         prior = cls.prior_from_config(cp, variable_params, prior_section,
                                       constraint_section)
@@ -712,6 +712,7 @@ class BaseModel(object):
                                                skip_args=['name']))
         return args
 
+    @classmethod
     def from_config(cls, cp, **kwargs):
         """Initializes an instance of this class from the given config file.
 

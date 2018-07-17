@@ -157,7 +157,7 @@ def read_from_config(cp, **kwargs):
         The initialized model.
     """
     # use the name to get the distribution
-    name = cp.get(section, "name")
+    name = cp.get("model", "name")
     return models[name].from_config(cp, **kwargs)
 
 
