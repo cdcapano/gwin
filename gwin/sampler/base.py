@@ -168,7 +168,10 @@ class _BaseSampler(object):
         fp.attrs['variable_params'] = list(self.variable_params)
         fp.attrs['sampling_params'] = list(self.sampling_params)
         fp.attrs["niterations"] = self.niterations
-        fp.attrs["lognl"] = self.model.lognl
+        try:
+            fp.attrs["lognl"] = self.model.lognl
+        except AttributeError:
+            pass
         for arg, val in kwargs.items():
             if val is None:
                 val = str(None)
@@ -348,15 +351,17 @@ class BaseMCMCSampler(_BaseSampler):
         # convert to dictionary to apply boundary conditions
         samples = {param: samples[..., ii] for
                    ii, param in enumerate(sampling_params)}
-        samples = self.model._prior.apply_boundary_conditions(
+        samples = self.model.prior_distribution.apply_boundary_conditions(
             **samples)
         # now convert to field array
         samples = FieldArray.from_arrays([samples[param]
                                           for param in sampling_params],
                                          names=sampling_params)
         # apply transforms to go to model params space
-        return self.model.apply_sampling_transforms(
-            samples, inverse=True)
+        if self.model.sampling_transforms is not None:
+            samples = self.model.sampling_transforms.apply(samples,
+                                                           inverse=True)
+        return samples 
 
     @property
     def model_stats(self):
@@ -528,7 +533,7 @@ class BaseMCMCSampler(_BaseSampler):
             return None
         # ensure the prior is in the model params parameter space
         if 'logjacobian' in samples.fieldnames:
-            samples['prior'] -= samples['logjacobian']
+            samples['logprior'] -= samples['logjacobian']
         parameters = samples.fieldnames
         samples_group = fp.stats_group
         # write data
