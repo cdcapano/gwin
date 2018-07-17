@@ -62,17 +62,15 @@ class EmceeEnsembleSampler(EnsembleMCMCAutocorrSupport, BaseMCMC, BaseSampler):
         cores/nodes/etc.
     """
     name = "emcee"
+    _io = EmceeFile
 
-    def __init__(self, model, outfile, nwalkers,
-                 checkpoint_interval=None, resume_from_checkpoint=True,
-                 n_independent_samples=None, niterations=None,
-                 logpost_function=None,
+    def __init__(self, model, nwalkers, logpost_function=None,
                  nprocesses=1, use_mpi=False):
 
         self.model = model
         # create a wrapper for calling the model
         if logpost_function is None:
-            logpost_function = ='logposterior'
+            logpost_function = 'logposterior'
         model_call = models.CallModel(model, logpost_function)
 
         # Set up the pool
@@ -84,14 +82,8 @@ class EmceeEnsembleSampler(EnsembleMCMCAutocorrSupport, BaseMCMC, BaseSampler):
         if pool is not None:
             pool.count = nprocesses
 
-        self.outfile = outfile
-        self._nwalkers = nwalkers
-
-        # set up checkpointing
-        self.setup_checkpoint(outfile,
-            resume_from_checkpoint=resume_from_checkpoint)
-
         # set up emcee
+        self._nwalkers = nwalkers
         ndim = len(model.variable_params)
         self._sampler = emcee.EnsembleSampler(nwalkers, ndim, model_call,
                                               pool=pool)
@@ -102,7 +94,7 @@ class EmceeEnsembleSampler(EnsembleMCMCAutocorrSupport, BaseMCMC, BaseSampler):
 
     @property
     def io(self):
-        return EmceeFile
+        return self._io
 
     def _write_more_metadata(self, fp):
         """Adds nwalkers to the metadata."""
@@ -200,8 +192,23 @@ class EmceeEnsembleSampler(EnsembleMCMCAutocorrSupport, BaseMCMC, BaseSampler):
             fp.write_random_state(state=self._sampler.random_state)
 
 
+    def finalize(self):
+        """Finalize the samples file."""
+        # Compute/write final ACL
+        acls = self.compute_acls(self.checkpoint_file)
+        # FIXME:
+        # logging.info("Updating burn in")
+        # burnidx, is_burned_in = burn_in_eval.update(self, fp)
+        # write
+        with self.io(self.checkpoint_file, "a") as fp:
+            # write the current number of iterations
+            fp.attrs['niterations'] = self.niterations
+            # FIXME:
+            #sampler.write_burn_in_iterations(fp, burnidx, is_burned_in)
+            fp.write_acls(acls)
+
     @classmethod
-    def from_config(cls, cp, model, outfile, nprocesses=1, use_mpi=False):
+    def from_config(cls, cp, model, nprocesses=1, use_mpi=False):
         """Loads the sampler from the given config file."""
         section = "sampler"
         # check name
@@ -213,6 +220,6 @@ class EmceeEnsembleSampler(EnsembleMCMCAutocorrSupport, BaseMCMC, BaseSampler):
             lnpost = cp.get(section, "logpost-function")
         else:
             lnpost = None
-        return cls(model, outfile, nwalkers, logpost_function=lnpost,
+        return cls(model, nwalkers, logpost_function=lnpost,
                    nprocesses=nprocesses, use_mpi=use_mpi)
 

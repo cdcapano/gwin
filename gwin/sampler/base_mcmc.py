@@ -408,7 +408,7 @@ class EnsembleMCMCAutocorrSupport(object):
             ``nwalkers x niterations``.
         """
         acfs = {}
-        with cls.io(filename, 'r') as fp:
+        with cls._io(filename, 'r') as fp:
             if parameters is None:
                 parameters = fp.variable_params
             if isinstance(parameters, str) or isinstance(parameters, unicode):
@@ -462,7 +462,7 @@ class EnsembleMCMCAutocorrSupport(object):
             A dictionary giving the ACL for each parameter.
         """
         acls = {}
-        with cls.io(filename, 'r') as fp:
+        with cls._io(filename, 'r') as fp:
             for param in fp.variable_params:
                 samples = fp.read_raw_samples(
                     fp, param, thin_start=start_index, thin_interval=1,
