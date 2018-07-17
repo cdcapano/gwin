@@ -166,7 +166,7 @@ class BaseDataModel(BaseModel):
 
         For details on parameters, see ``from_config``.
         """
-        args = super(DataModel, cls)._init_args_from_config(cp)
+        args = super(BaseDataModel, cls)._init_args_from_config(cp)
         # add waveform transforms to the arguments
         if any(cp.get_subsections('waveform_transforms')):
             logging.info("Loading waveform transforms")
