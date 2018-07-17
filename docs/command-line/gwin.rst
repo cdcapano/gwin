@@ -183,7 +183,7 @@ To make a movie showing how the walkers evolved, run::
         --plot-scatter \
         --plot-contours \
         --plot-marginal \
-        --z-arg loglr \
+        --z-arg 'loglikelihood:$\log p(h|\vartheta)$' \
         --frame-step 1
 
 **Note:** you need ``ffmpeg`` installed for the mp4 to be created. See below for more information on using ``gwin_plot_movie``.
