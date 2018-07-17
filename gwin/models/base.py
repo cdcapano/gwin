@@ -687,7 +687,7 @@ class BaseModel(object):
     def _init_args_from_config(cls, cp):
         """Helper function for loading parameters."""
         section = "model"
-        prior_section = "prior",
+        prior_section = "prior"
         vparams_section = 'variable_params'
         sparams_section = 'static_params'
         constraint_section = 'constraint'
@@ -697,7 +697,6 @@ class BaseModel(object):
             raise ValueError("section's {} name does not match mine {}".format(
                              name, cls.name))
         # get model parameters
-        # Requires PyCBC 1.11.2
         variable_params, static_params = distributions.read_params_from_config(
             cp, prior_section=prior_section, vargs_section=vparams_section,
             sargs_section=sparams_section)
@@ -729,7 +728,7 @@ class BaseModel(object):
         try:
             sampling_transforms = SamplingTransforms.from_config(
                 cp, args['variable_params'])
-        except AssertionError:
+        except ValueError:
             sampling_transforms = None
         args['sampling_transforms'] = sampling_transforms
         args.update(kwargs)
