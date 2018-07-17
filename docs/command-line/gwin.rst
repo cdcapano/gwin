@@ -154,21 +154,22 @@ Then run::
         --config-files normal2d.ini \
         --output-file normal2d.hdf \
         --sampler emcee \
-        --niterations 100 \
-        --nwalkers 5000
+        --niterations 50 \
+        --nwalkers 5000 \
+        --nprocesses 2
 
 This will run the ``emcee`` sampler on the 2D analytic normal distribution with 5000 walkers for 100 iterations.
 
 To plot the posterior distribution after the last iteration, run::
 
     gwin_plot_posterior --verbose \
-        --input-file normal2d.hdf \
-        --output-file posterior-normal2d.png \
-        --plot-scatter \
-        --plot-contours \
-        --plot-marginal \
-        --z-arg loglr \
-        --iteration -1
+            --input-file normal2d.hdf \
+            --output-file posterior-normal2d.png \
+            --plot-scatter \
+            --plot-contours \
+            --plot-marginal \
+            --z-arg 'loglikelihood:$\log p(h|\vartheta)$' \
+            --iteration -1
 
 This will plot each walker's position as a single point colored by the log likelihood ratio at that point, with the 50th and 90th percentile contours drawn. See below for more information about using ``gwin_plot_posterior``.
 
