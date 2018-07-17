@@ -144,7 +144,7 @@ class BaseInferenceFile(h5py.File):
             and ``parse_parameters`` methods. If None, will return a
             ``FieldArray``.
         \**kwargs :
-            All other keyword arguments are passed to ``_read_samples_data``.
+            All other keyword arguments are passed to ``read_raw_samples``.
 
         Returns
         -------
@@ -157,7 +157,7 @@ class BaseInferenceFile(h5py.File):
         # get the names of fields needed for the given parameters
         possible_fields = self[self.samples_group].keys()
         loadfields = array_class.parse_parameters(parameters, possible_fields)
-        samples = self._read_samples_data(loadfields, **kwargs)
+        samples = self.read_raw_samples(loadfields, **kwargs)
         # convert to FieldArray
         samples = array_class.from_kwargs(**samples)
         # add the static params
@@ -166,7 +166,7 @@ class BaseInferenceFile(h5py.File):
         return samples
 
     @abstractmethod
-    def _read_samples_data(self, fields, **kwargs):
+    def read_raw_samples(self, fields, **kwargs):
         """Low level function for reading datasets in the samples group.
 
         This should return a dictionary of numpy arrays.

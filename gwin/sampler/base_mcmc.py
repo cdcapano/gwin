@@ -324,44 +324,54 @@ class BaseMCMC(object):
         # write new samples
         logging.info("Writing samples to file")
         self.write_results(self.checkpoint_file)
-        # write other stuff
-        with self.io(checkpoint_file, "a") as fp:
-            # write the current number of iterations
-            fp.attrs['niterations'] = self.niterations
-            # FIXME
-            # logging.info("Updating burn in")
-            # burnidx, is_burned_in = burn_in_eval.update(self, fp)
-
-            # compute the acls and write
-            acls = None
-            if self.require_indep_samples:
-                logging.info("Computing acls")
-                acls = self.compute_acls(fp)
-                sampler.write_acls(fp, acls)
-
-        # write to backup
-        with InferenceFile(backup_file, "a") as fp:
-
-            logging.info("Writing to backup file")
-            sampler.write_results(fp,
-                                  ifos=opts.instruments)
-            sampler.write_burn_in_iterations(fp, burnidx, is_burned_in)
-            if acls is not None:
-                sampler.write_acls(fp, acls)
-
+        logging.info("Writing to backup file")
+        self.write_results(self.backup_file)
+        # compute the acls
+        acls = None
+        if self.require_indep_samples:
+            logging.info("Computing acls")
+            acls = self.compute_acls(self.checkpoint_file)
+        # FIXME:
+        # logging.info("Updating burn in")
+        # burnidx, is_burned_in = burn_in_eval.update(self, fp)
+        # write
+        for fn in [self.checkpoint_file, self.backup_file]:
+            with self.io(fn, "a") as fp:
+                # write the current number of iterations
+                fp.attrs['niterations'] = self.niterations
+                # FIXME:
+                #sampler.write_burn_in_iterations(fp, burnidx, is_burned_in)
+                if acls is not None:
+                    fp.write_acls(acls)
         # check validity
-        checkpoint_valid = validate_checkpoint_files(checkpoint_file,
-                                                     backup_file)
+        checkpoint_valid = validate_checkpoint_files(
+            self.checkpoint_file, self.backup_file)
         if not checkpoint_valid:
             raise IOError("error writing to checkpoint file")
-
         # clear the in-memory chain to save memory
         logging.info("Clearing chain")
         self.clear_chain()
 
+    @abstractmethod
+    def compute_acf(cls, filename, **kwargs):
+        """A method to compute the autocorrelation function of samples in the
+        given file."""
+        pass
+
+    @abstractmethod
+    def compute_acl(cls, filename, **kwargs):
+        """A method to compute the autocorrelation length of samples in the
+        given file."""
+        pass
+
+
+
+class EnsembleMCMCAutocorrSupport(object):
+    """Provides class methods for calculating ensemble ACFs/ACLs.
+    """
 
     @classmethod
-    def compute_acfs(cls, fp, start_index=None, end_index=None,
+    def compute_acfs(cls, filename, start_index=None, end_index=None,
                      per_walker=False, walkers=None, parameters=None):
         """Computes the autocorrleation function of the model params in the
         given file.
@@ -372,8 +382,8 @@ class BaseMCMC(object):
 
         Parameters
         -----------
-        fp : InferenceFile
-            An open file handler to read the samples from.
+        filename : str
+            Name of a samples file to compute ACFs for.
         start_index : {None, int}
             The start index to compute the acl from. If None, will try to use
             the number of burn-in iterations in the file; otherwise, will start
@@ -392,39 +402,41 @@ class BaseMCMC(object):
 
         Returns
         -------
-        FieldArray
-            A ``FieldArray`` of the ACF vs iteration for each parameter. If
-            `per-walker` is True, the FieldArray will have shape
+        dict :
+            Dictionary of arrays giving the ACFs for each parameter. If
+            ``per-walker`` is True, the arrays will have shape
             ``nwalkers x niterations``.
         """
         acfs = {}
-        if parameters is None:
-            parameters = fp.variable_params
-        if isinstance(parameters, str) or isinstance(parameters, unicode):
-            parameters = [parameters]
-        for param in parameters:
-            if per_walker:
-                # just call myself with a single walker
-                if walkers is None:
-                    walkers = numpy.arange(fp.nwalkers)
-                arrays = [cls.compute_acfs(fp, start_index=start_index,
-                                           end_index=end_index,
-                                           per_walker=False, walkers=ii,
-                                           parameters=param)[param]
-                          for ii in walkers]
-                acfs[param] = numpy.vstack(arrays)
-            else:
-                samples = cls.read_samples(fp, param,
-                                           thin_start=start_index,
-                                           thin_interval=1, thin_end=end_index,
-                                           walkers=walkers,
-                                           flatten=False)[param]
-                samples = samples.mean(axis=0)
-                acfs[param] = autocorrelation.calculate_acf(samples).numpy()
-        return FieldArray.from_kwargs(**acfs)
+        with cls.io(filename, 'r') as fp:
+            if parameters is None:
+                parameters = fp.variable_params
+            if isinstance(parameters, str) or isinstance(parameters, unicode):
+                parameters = [parameters]
+            for param in parameters:
+                if per_walker:
+                    # just call myself with a single walker
+                    if walkers is None:
+                        walkers = numpy.arange(fp.nwalkers)
+                    arrays = [
+                        cls.compute_acfs(filename, start_index=start_index,
+                                         end_index=end_index,
+                                         per_walker=False, walkers=ii,
+                                         parameters=param)[param]
+                        for ii in walkers]
+                    acfs[param] = numpy.vstack(arrays)
+                else:
+                    samples = fp.read_raw_samples(
+                        fp, param, thin_start=start_index, thin_interval=1,
+                        thin_end=end_index, walkers=walkers,
+                        flatten=False)[param]
+                    samples = samples.mean(axis=0)
+                    acfs[param] = autocorrelation.calculate_acf(
+                        samples).numpy()
+        return acfs
 
     @classmethod
-    def compute_acls(cls, fp, start_index=None, end_index=None):
+    def compute_acls(cls, filename, start_index=None, end_index=None):
         """Computes the autocorrleation length for all model params in the
         given file.
 
@@ -434,8 +446,8 @@ class BaseMCMC(object):
 
         Parameters
         -----------
-        fp : InferenceFile
-            An open file handler to read the samples from.
+        filename : str
+            Name of a samples file to compute ACLs for.
         start_index : {None, int}
             The start index to compute the acl from. If None, will try to use
             the number of burn-in iterations in the file; otherwise, will start
@@ -450,68 +462,17 @@ class BaseMCMC(object):
             A dictionary giving the ACL for each parameter.
         """
         acls = {}
-        for param in fp.variable_params:
-            samples = cls.read_samples(fp, param,
-                                       thin_start=start_index,
-                                       thin_interval=1, thin_end=end_index,
-                                       flatten=False)[param]
-            samples = samples.mean(axis=0)
-            acl = autocorrelation.calculate_acl(samples)
-            if numpy.isinf(acl):
-                acl = samples.size
-            acls[param] = acl
+        with cls.io(filename, 'r') as fp:
+            for param in fp.variable_params:
+                samples = fp.read_raw_samples(
+                    fp, param, thin_start=start_index, thin_interval=1,
+                    thin_end=end_index, flatten=False)[param]
+                samples = samples.mean(axis=0)
+                acl = autocorrelation.calculate_acl(samples)
+                if numpy.isinf(acl):
+                    acl = samples.size
+                acls[param] = acl
         return acls
-
-    @staticmethod
-    def write_acls(fp, acls):
-        """Writes the given autocorrelation lengths to the given file.
-
-        The ACL of each parameter is saved to ``fp['acls/{param}']``.
-        The maximum over all the parameters is saved to the file's 'acl'
-        attribute.
-
-        Parameters
-        ----------
-        fp : InferenceFile
-            An open file handler to write the samples to.
-        acls : dict
-            A dictionary of ACLs keyed by the parameter.
-
-        Returns
-        -------
-        ACL
-            The maximum of the acls that was written to the file.
-        """
-        group = 'acls/{}'
-        # write the individual acls
-        for param in acls:
-            try:
-                # we need to use the write_direct function because it's
-                # apparently the only way to update scalars in h5py
-                fp[group.format(param)].write_direct(numpy.array(acls[param]))
-            except KeyError:
-                # dataset doesn't exist yet
-                fp[group.format(param)] = acls[param]
-        # write the maximum over all params
-        fp.attrs['acl'] = numpy.array(acls.values()).max()
-        return fp.attrs['acl']
-
-    @staticmethod
-    def read_acls(fp):
-        """Reads the acls of all the parameters in the given file.
-
-        Parameters
-        ----------
-        fp : InferenceFile
-            An open file handler to read the acls from.
-
-        Returns
-        -------
-        dict
-            A dictionary of the ACLs, keyed by the parameter name.
-        """
-        group = fp['acls']
-        return {param: group[param].value for param in group.keys()}
 
 
 class MCMCBurnInSupport(object):

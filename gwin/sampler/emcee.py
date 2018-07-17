@@ -46,7 +46,7 @@ from .base_mcmc import (BaseMCMC, raw_samples_to_dict, raw_stats_to_dict)
 # =============================================================================
 #
 
-class EmceeEnsembleSampler(BaseMCMC, BaseSampler):
+class EmceeEnsembleSampler(EnsembleMCMCAutocorrSupport, BaseMCMC, BaseSampler):
     """This class is used to construct an MCMC sampler from the emcee
     package's EnsembleSampler.
 

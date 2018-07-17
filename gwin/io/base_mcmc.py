@@ -112,7 +112,7 @@ class EnsembleMCMCIO(obect):
                                   dtype=float, fletcher32=True)
             fp[dataset_name][:, istart:istop] = samples[param]
 
-    def _read_samples_data(self, fields,
+    def read_raw_samples(self, fields,
                            thin_start=None, thin_interval=None, thin_end=None,
                            iteration=None, walkers=None, flatten=True):
         """Base function for reading samples.
@@ -166,4 +166,54 @@ class EnsembleMCMCIO(obect):
             niterations = 0
         resume_pts.append(niterations)
         self.attrs["resume_points"] = resume_pts
+
+    def write_acls(self, acls):
+        """Writes the given autocorrelation lengths.
+
+        The ACL of each parameter is saved to
+        ``[sampler_group]/acls/{param}']``.  The maximum over all the
+        parameters is saved to the file's 'acl' attribute.
+
+        Parameters
+        ----------
+        acls : dict
+            A dictionary of ACLs keyed by the parameter.
+
+        Returns
+        -------
+        ACL
+            The maximum of the acls that was written to the file.
+        """
+        group = self.sampler_group + '/acls/{}'
+        # write the individual acls
+        for param in acls:
+            try:
+                # we need to use the write_direct function because it's
+                # apparently the only way to update scalars in h5py
+                self[group.format(param)].write_direct(
+                    numpy.array(acls[param]))
+            except KeyError:
+                # dataset doesn't exist yet
+                self[group.format(param)] = acls[param]
+        # write the maximum over all params
+        self.attrs['acl'] = numpy.array(acls.values()).max()
+        return self.attrs['acl']
+
+    def read_acls(self):
+        """Reads the acls of all the parameters.
+
+        Parameters
+        ----------
+        fp : InferenceFile
+            An open file handler to read the acls from.
+
+        Returns
+        -------
+        dict
+            A dictionary of the ACLs, keyed by the parameter name.
+        """
+        group = self[self.sampler_group]['acls']
+        return {param: group[param].value for param in group.keys()}
+
+
 
