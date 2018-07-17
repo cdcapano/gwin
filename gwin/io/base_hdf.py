@@ -103,8 +103,9 @@ class BaseInferenceFile(h5py.File):
             to derive the virtual field or method), and/or a function of
             these.
         array_class : array class, optional
-            The type of array to use to parse the parameters. The class must have a
-            ``parse_parameters`` method. Default is to use a ``FieldArray``.
+            The type of array to use to parse the parameters. The class must
+            have a ``parse_parameters`` method. Default is to use a
+            ``FieldArray``.
 
         Returns
         -------
@@ -174,14 +175,14 @@ class BaseInferenceFile(h5py.File):
         pass
 
     @abstractmethod
-    def write_posterior(self, posterior_fp, **kwargs):
+    def write_posterior(self, posterior_file, **kwargs):
         """This should write a posterior plus any other metadata to the given
         file.
 
         Parameters
         ----------
-        posterior_fp : open hdf file
-            The file to write to.
+        posterior_file : str
+            Name of the file to write to.
         \**kwargs :
             Any other keyword args the sampler needs to write the posterior.
         """
