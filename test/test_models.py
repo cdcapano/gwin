@@ -74,11 +74,11 @@ class _TestBaseModel(_TestBase):
         finally:
             simple._sampling_transforms = _st
 
-    def test_default_stats(self):
+    def test_default_stats(self, simple):
         # tests that the default stats always has at least logjacobian,
         # logprior, and loglikelihooe
         expected = set(['logjacobian', 'logprior', 'loglikelihood'])
-        assert expected.issubset(set(self.default_stats))
+        assert expected.issubset(set(simple.default_stats))
 
 
 # -- GaussianNoise -------------------------------------------------------
