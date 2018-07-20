@@ -258,9 +258,10 @@ class GaussianNoise(BaseDataModel):
             self._data[det][kmin:kmax] *= self._weight[det][kmin:kmax]
 
     @property
-    def default_stats(self):
-        """The stats that ``get_current_stats`` returns by default."""
-        return ['logjacobian', 'logprior', 'loglr'] + \
+    def _extra_stats(self):
+        """Adds ``loglr``, plus ``cplx_loglr`` and ``optimal_snrsq`` in each
+        detctor."""
+        return ['loglr'] + \
                ['{}_cplx_loglr'.format(det) for det in self._data] + \
                ['{}_optimal_snrsq'.format(det) for det in self._data]
 
@@ -286,6 +287,7 @@ class GaussianNoise(BaseDataModel):
         """Convenience function to set loglr values if no waveform generated.
         """
         for det in self._data:
+            setattr(self._current_stats, 'loglikelihood', -numpy.inf)
             setattr(self._current_stats, '{}_cplx_loglr'.format(det),
                     -numpy.inf)
             # snr can't be < 0 by definition, so return 0
@@ -335,6 +337,9 @@ class GaussianNoise(BaseDataModel):
             setattr(self._current_stats, '{}_cplx_loglr'.format(det),
                     cplx_loglr)
             lr += cplx_loglr.real
+        # also store the loglikelihood, to ensure it is populated in the
+        # current stats even if loglikelihood is never called
+        self._current_stats.loglikelihood = lr + self.lognl
         return float(lr)
 
     def _loglikelihood(self):
