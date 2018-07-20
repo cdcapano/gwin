@@ -476,7 +476,15 @@ class EnsembleMCMCAutocorrSupport(object):
 
 
 class MCMCBurnInSupport(object):
-    """Provides methods for estimating burn-in."""
+    """Provides methods for estimating burn-in of an ensemble MCMC."""
+
+    def __init__(self, burn_in_tests):
+        self.burn_in_tests = burn_in_tests
+
+    def _max_posterior(self, filename):
+        """Applies max posterior test to self."""
+        with self.io(filename, 'r') as fp:
+            samples = self.read_samples()
 
     def write_burn_in_iterations(fp, burn_in_iterations, is_burned_in=None):
         """Writes the burn in iterations to the given file.
