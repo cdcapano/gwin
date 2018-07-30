@@ -215,5 +215,18 @@ class EnsembleMCMCIO(obect):
         group = self[self.sampler_group]['acls']
         return {param: group[param].value for param in group.keys()}
 
-
-
+    def write_burn_in(self, burn_in):
+        """Write the given burn-in data to the given filename."""
+        group = self[self.sampler_group]
+        group.attrs['is_burned_in'] = burn_in.is_burned_in
+        group.attrs['burn_in_iteration'] = burn_in.burn_in_iteration
+        group.attrs['burn_in_test'] = burn_in.burn_in_test
+        # write individual test data
+        for tst in burn_in.burn_in_data:
+            key = 'burn_in_tests/{}'.format(tst)
+            try:
+                attrs = group[key].attrs
+            except KeyError:
+                group.create_group(key)
+                attrs = group[key].attrs
+            write_kwargs_to_hdf_attrs(attrs, **burn_in.burn_in_data[tst])
