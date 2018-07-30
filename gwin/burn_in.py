@@ -196,8 +196,6 @@ from pycbc.io.record import get_vars_from_arg
 class MCMCBurnInSupport(object):
     """Provides methods for estimating burn-in of an ensemble MCMC."""
 
-    default_burn_in_iteration = -1
-
     def __init__(self, sampler, burn_in_test, **kwargs):
         self.sampler = sampler
         # determine the burn-in tests that are going to be done
@@ -208,9 +206,9 @@ class MCMCBurnInSupport(object):
         self.burn_in_iteration = None
         if 'nacl' in burn_in_tests:
             # get the number of acls to use
-            self._nacls = kwargs.pop('nacls', 5)
+            self._nacls = int(kwargs.pop('nacls', 5))
         if 'ks_test' in burn_in_tests:
-            self._ksthreshold = kwargs.pop('ks_threshold', 0.9)
+            self._ksthreshold = float(kwargs.pop('ks_threshold', 0.9))
 
     def max_posterior(self, filename):
         """Applies max posterior test to self."""
@@ -305,3 +303,17 @@ class MCMCBurnInSupport(object):
             self.burn_in_iteration = ii
         else:
             self.burn_in_iteration = NOT_BURNED_IN_ITER
+
+    @classmethod
+    def from_config(cls, cp, sampler):
+        """Loads burn in from section [sampler-burn_in]."""
+        section = 'sampler'
+        tag = 'burn_in'
+        burn_in_test = cp.get_opt_tag(section, 'burn-in-test', tag)
+        kwargs = {}
+        if cp.has_option_tag(section, 'nacl', tag):
+            kwargs['nacl'] = int(cp.get_opt_tag(section, 'nacl', tag))
+        if cp.has_option_tag(section, 'ks-threshold', tag)
+            kwargs['ks_threshold'] = float(
+                cp.get_opt_tag(section, 'ks-threshold', tag)           
+        return cls(sampler, burn_in_test, **kwargs)
