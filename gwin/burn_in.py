@@ -13,6 +13,14 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
+
+#
+# =============================================================================
+#
+#                                   Preamble
+#
+# =============================================================================
+#
 """
 This modules provides classes and functions for determining when Markov Chains
 have burned in.
@@ -23,7 +31,16 @@ from scipy.stats import ks_2samp
 
 from pycbc.filter import autocorrelation
 
+# The value to use for a burn-in iteration if a chain is not burned in
+NOT_BURNED_IN_ITER = -1
 
+#
+# =============================================================================
+#
+#                              Convenience functions
+#
+# =============================================================================
+#
 def ks_test(samples1, samples2, threshold=0.9):
     """Applies a KS test to determine if two sets of samples are the same.
 
@@ -93,7 +110,7 @@ def n_acl(chain, nacls=5):
     if is_burned_in:
         burn_in_idx = kstart
     else:
-        burn_in_idx = len(chain)
+        burn_in_idx = NOT_BURNED_IN_ITER
     return burn_in_idx, is_burned_in, acl
 
 
@@ -134,7 +151,7 @@ def max_posterior(lnps_per_walker, dim):
         if is_burned_in:
             burn_in_idx[ii] = passedidx[0]
         else:
-            burn_in_idx[ii] = niterations
+            burn_in_idx[ii] = NOT_BURNED_IN_ITER
     return burn_in_idx, is_burned_in
 
 
@@ -164,3 +181,127 @@ def posterior_step(logposts, dim):
     else:
         idx = 0
     return idx
+
+
+#
+# =============================================================================
+#
+#                              Burn in classes
+#
+# =============================================================================
+#
+
+from pycbc.io.record import get_vars_from_arg
+
+class MCMCBurnInSupport(object):
+    """Provides methods for estimating burn-in of an ensemble MCMC."""
+
+    default_burn_in_iteration = -1
+
+    def __init__(self, sampler, burn_in_test, **kwargs):
+        self.sampler = sampler
+        # determine the burn-in tests that are going to be done
+        self.do_tests = get_vars_from_arg(burn_in_test)
+        self.burn_in_test = burn_in_test
+        self.burn_in_data = {t: {} for t in self.do_tests}
+        self.is_burned_in = False
+        self.burn_in_iteration = None
+        if 'nacl' in burn_in_tests:
+            # get the number of acls to use
+            self._nacls = kwargs.pop('nacls', 5)
+        if 'ks_test' in burn_in_tests:
+            self._ksthreshold = kwargs.pop('ks_threshold', 0.9)
+
+    def max_posterior(self, filename):
+        """Applies max posterior test to self."""
+        with sampler.io(filename, 'r') as fp:
+            samples = fp.read_raw_samples(
+                ['loglikelihood', 'logprior'], thin_start=0, thin_interval=1,
+                flatten=False)
+            logposts = samples['loglikelihood'] + samples['logprior']
+        burn_in_idx, is_burned_in = burn_in.max_posterior(
+            logposts, len(self.variable_params))
+        data = self.burn_in_data['max_posterior']
+        # required things to store
+        data['is_burned_in'] = is_burned_in.all()
+        data['burn_in_iteration'] = burn_in_idx.max()
+        # additional info
+        data['iteration_per_walker'] = burn_in_idx
+        data['status_per_walker'] = is_burned_in
+
+    def nacl(self, filename):
+        """Applies the nacl burn-in test"""
+        with sampler.io(filename, 'r') as fp:
+            niters = fp.niterations
+        kstart = int(niters / 2.)
+        acls = sampler.compute_acls(filename, start_index=kstart)
+        is_burned_in = {param: (self._nacls * acl) < kstart
+                        for (param, acl) in acls.items()}
+        data = self.burn_in_data['nacl']
+        # required things to store
+        data['is_burned_in'] = all(is_burned_in.values())
+        if data['is_burned_in']:
+            data['burn_in_iteration'] = kstart
+        else:
+            data['burn_in_iteration'] = NOT_BURNED_IN_ITER
+        # additional information
+        data['status_per_parameter'] = is_burned_in
+        # since we calculated it, save the acls to the sampler
+        sampler.acls = acls
+
+    def ks_test(self, filename):
+        """Applies ks burn-in test."""
+        with sampler.io(filename, 'r') as fp:
+            niters = fp.niterations
+            # get the samples from the mid point
+            samples1 = fp.read_raw_samples(
+                ['loglikelihood', 'logprior'], iteration=int(niters/2.))
+            # get the last samples
+            samples2 = fp.read_raw_samples(
+                ['loglikelihood', 'logprior'], iteration=-1)
+        # do the test
+        # is_the_same is a dictionary of params --> bool indicating whether or
+        # not the 1D marginal is the same at the half way point
+        is_the_same = ks_test(samples1, samples2, threshold=self.ks_threshold) 
+        data = self.burn_in_data['ks_test']
+        # required things to store
+        data['is_burned_in'] = all(is_the_same.values()) 
+        if data['is_burned_in']:
+            data['burn_in_iteration'] = int(niters/2.)
+        else:
+            data['burn_in_iteration'] = NOT_BURNED_IN_ITER
+        # additional
+        data['status_per_parameter'] = is_the_same
+
+    def evaluate(self, filename):
+        """Runs all of the burn-in tests."""
+        for tst in self.tests_to_do:
+            getattr(self, tst)(filename)
+        # The iteration to use for burn-in depends on the logic in the burn-in
+        # test string. For example, if the test was 'max_posterior | nacl' and
+        # max_posterior burned-in at iteration 5000 while nacl burned in at
+        # iteration 6000, we'd want to use 5000 as the burn-in iteration.
+        # However, if the test was 'max_posterior & nacl', we'd want to use
+        # 6000 as the burn-in iteration. The code below handles all cases by
+        # doing the following: first, take the collection of burn in iterations
+        # from all the burn in tests that were applied.  Next, cycle over the
+        # iterations in increasing order, checking which tests have burned in
+        # by that point. Then evaluate the burn-in string at that point to see
+        # if it passes, and if so, what the iteration is. The first point that
+        # the test passes is used as the burn-in iteration.
+        burn_in_iters = numpy.unique([self.data[t]['burn_in_iteration']
+                                      for t in self.do_tests])
+        burn_in_iters.sort()
+        for ii in burn_in_iters:
+            test_results = {t: (self.data[t]['is_burned_in'] &
+                                self.data[t]['burn_in_iteration'] <= ii)
+                            for t in self.do_tests}
+            is_burned_in = eval(self.burn_in_test, {"__builtins__": None},
+                                test_results)
+            if is_burned_in:
+                break
+        self.is_burned_in = is_burned_in
+        if is_burned_in:
+            self.burn_in_iteration = ii
+        else:
+            self.burn_in_iteration = NOT_BURNED_IN_ITER

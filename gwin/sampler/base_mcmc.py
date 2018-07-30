@@ -327,10 +327,10 @@ class BaseMCMC(object):
         logging.info("Writing to backup file")
         self.write_results(self.backup_file)
         # compute the acls
-        acls = None
+        self.acls = None
         if self.require_indep_samples:
             logging.info("Computing acls")
-            acls = self.compute_acls(self.checkpoint_file)
+            self.acls = self.compute_acls(self.checkpoint_file)
         # FIXME:
         # logging.info("Updating burn in")
         # burnidx, is_burned_in = burn_in_eval.update(self, fp)
@@ -341,7 +341,7 @@ class BaseMCMC(object):
                 fp.attrs['niterations'] = self.niterations
                 # FIXME:
                 #sampler.write_burn_in_iterations(fp, burnidx, is_burned_in)
-                if acls is not None:
+                if self.acls is not None:
                     fp.write_acls(acls)
         # check validity
         checkpoint_valid = validate_checkpoint_files(
@@ -473,40 +473,3 @@ class EnsembleMCMCAutocorrSupport(object):
                     acl = samples.size
                 acls[param] = acl
         return acls
-
-
-class MCMCBurnInSupport(object):
-    """Provides methods for estimating burn-in of an ensemble MCMC."""
-
-    def __init__(self, burn_in_tests):
-        self.burn_in_tests = burn_in_tests
-
-    def _max_posterior(self, filename):
-        """Applies max posterior test to self."""
-        with self.io(filename, 'r') as fp:
-            samples = self.read_samples()
-
-    def write_burn_in_iterations(fp, burn_in_iterations, is_burned_in=None):
-        """Writes the burn in iterations to the given file.
-
-        Parameters
-        ----------
-        fp : InferenceFile
-            A file handler to an open inference file.
-        burn_in_iterations : array
-            Array of values giving the iteration of the burn in of each walker.
-        is_burned_in : array
-            Array of booleans indicating which chains are burned in.
-        """
-        try:
-            fp['burn_in_iterations'][:] = burn_in_iterations
-        except KeyError:
-            fp['burn_in_iterations'] = burn_in_iterations
-        fp.attrs['burn_in_iterations'] = burn_in_iterations.max()
-        if is_burned_in is not None:
-            try:
-                fp['is_burned_in'][:] = is_burned_in
-            except KeyError:
-                fp['is_burned_in'] = is_burned_in
-            fp.attrs['is_burned_in'] = is_burned_in.all()
-
