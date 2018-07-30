@@ -193,7 +193,7 @@ def posterior_step(logposts, dim):
 
 from pycbc.io.record import get_vars_from_arg
 
-class MCMCBurnInSupport(object):
+class MCMCBurnInTests(object):
     """Provides methods for estimating burn-in of an ensemble MCMC."""
 
     def __init__(self, sampler, burn_in_test, **kwargs):

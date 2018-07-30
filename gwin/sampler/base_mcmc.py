@@ -129,6 +129,7 @@ class BaseMCMC(object):
     _pos = None
     _p0 = None
     _nwalkers = None
+    _burn_in = None
 
     @abstractproperty(self):
     def base_shape(self):
@@ -259,8 +260,8 @@ class BaseMCMC(object):
         # "nsamples" keeps track of the number of samples we've obtained (if
         # require_indep_samples is used, this is the number of independent
         # samples; otherwise, this is the total number of samples).
-        # "startiter" is the number of iterations that the file already contains
-        # (either due to sampler burn-in, or a previous checkpoint)
+        # "startiter" is the number of iterations that the file already
+        # contains (either due to sampler burn-in, or a previous checkpoint)
         try:
             with self.io(self.checkpoint_file, "r") as fp:
                 start = fp.niterations
@@ -303,20 +304,42 @@ class BaseMCMC(object):
             # update nsamples for next loop
             if self.require_indep_samples:
                 nsamples = self.n_indep_samples
-                logging.info("Have {} independent samples".format(nsamples))
+                logging.info("Have {} independent samples post burn in".format(
+                    nsamples))
             else:
                 nsamples += iterinterval * self.nwalkers
             self._itercounter = startiter = enditer
 
-    @abstractproperty
+    @propetry
+    def burn_in(self):
+        """The class for doing burn-in tests (if specified)."""
+        return self._burn_in
+
+    def set_burn_in(self, burn_in):
+        """Sets the object to use for doing burn-in tests."""
+        self._burn_in = burn_in
+
     def n_indep_samples(self):
-        """Should return the number of independent samples the sampler has
+        """The number of independent samples post burn-in that the sampler has
         acquired so far."""
-        pass
+        if self.acls is None:
+            acl = numpy.inf
+        else:
+            acl = numpy.array(self.acls.values()).max()
+        if self.burn_in is None:
+            niters = self.niterations
+        else:
+            niters = self.niterations - self.burn_in.burn_in_iteration
+        return self.nwalkers * int(niters // acl)
 
     @abstractmethod
     def run_mcmc(self, niterations):
         """Run the MCMC for the given number of iterations."""
+        pass
+
+    @abstractmethod
+    def write_results(self, filename):
+        """Should write all samples currently in memory to the given file."""
         pass
 
     def checkpoint(self):
@@ -326,23 +349,26 @@ class BaseMCMC(object):
         self.write_results(self.checkpoint_file)
         logging.info("Writing to backup file")
         self.write_results(self.backup_file)
-        # compute the acls
+        # check for burn in, compute the acls
         self.acls = None
-        if self.require_indep_samples:
+        if self.burn_in is not None:
+            logging.info("Updating burn in")
+            self.burn_in.evaluate(self.checkpoint_file)
+        # Compute acls; the burn_in test may have calculated an acl and saved
+        # it, in which case we don't need to do it again.
+        if self.acls is None:
             logging.info("Computing acls")
             self.acls = self.compute_acls(self.checkpoint_file)
-        # FIXME:
-        # logging.info("Updating burn in")
-        # burnidx, is_burned_in = burn_in_eval.update(self, fp)
         # write
         for fn in [self.checkpoint_file, self.backup_file]:
             with self.io(fn, "a") as fp:
-                # write the current number of iterations
-                fp.attrs['niterations'] = self.niterations
-                # FIXME:
-                #sampler.write_burn_in_iterations(fp, burnidx, is_burned_in)
+                if self.burn_in is not None:
+                    fp.write_burn_in(self.burn_in)
                 if self.acls is not None:
                     fp.write_acls(acls)
+                # write the current number of iterations
+                fp.attrs['niterations'] = self.niterations
+                fp.attrs['n_indep_samples'] = self.n_indep_samples
         # check validity
         checkpoint_valid = validate_checkpoint_files(
             self.checkpoint_file, self.backup_file)
@@ -408,7 +434,7 @@ class EnsembleMCMCAutocorrSupport(object):
             ``nwalkers x niterations``.
         """
         acfs = {}
-        with cls._io(filename, 'r') as fp:
+        with cls.io(filename, 'r') as fp:
             if parameters is None:
                 parameters = fp.variable_params
             if isinstance(parameters, str) or isinstance(parameters, unicode):
@@ -462,7 +488,7 @@ class EnsembleMCMCAutocorrSupport(object):
             A dictionary giving the ACL for each parameter.
         """
         acls = {}
-        with cls._io(filename, 'r') as fp:
+        with cls.io(filename, 'r') as fp:
             for param in fp.variable_params:
                 samples = fp.read_raw_samples(
                     fp, param, thin_start=start_index, thin_interval=1,

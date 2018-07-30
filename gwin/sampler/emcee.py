@@ -33,9 +33,11 @@ import emcee
 from pycbc.io import FieldArray
 from pycbc.filter import autocorrelation
 from pycbc.pool import choose_pool
+from pycbc.workflow import ConfigParser
 
 from .base import BaseSampler
 from .base_mcmc import (BaseMCMC, raw_samples_to_dict, raw_stats_to_dict)
+from ../ import burn_in
 
 
 #
@@ -63,6 +65,7 @@ class EmceeEnsembleSampler(EnsembleMCMCAutocorrSupport, BaseMCMC, BaseSampler):
     """
     name = "emcee"
     _io = EmceeFile
+    burn_in_class = burn_in.MCMCBurnInTests
 
     def __init__(self, model, nwalkers, logpost_function=None,
                  nprocesses=1, use_mpi=False):
@@ -191,21 +194,10 @@ class EmceeEnsembleSampler(EnsembleMCMCAutocorrSupport, BaseMCMC, BaseSampler):
             # write random state
             fp.write_random_state(state=self._sampler.random_state)
 
-
     def finalize(self):
-        """Finalize the samples file."""
-        # Compute/write final ACL
-        acls = self.compute_acls(self.checkpoint_file)
-        # FIXME:
-        # logging.info("Updating burn in")
-        # burnidx, is_burned_in = burn_in_eval.update(self, fp)
-        # write
-        with self.io(self.checkpoint_file, "a") as fp:
-            # write the current number of iterations
-            fp.attrs['niterations'] = self.niterations
-            # FIXME:
-            #sampler.write_burn_in_iterations(fp, burnidx, is_burned_in)
-            fp.write_acls(acls)
+        """All data is written by the last checkpoint in the run method, so
+        this just passes."""
+        pass
 
     @classmethod
     def from_config(cls, cp, model, nprocesses=1, use_mpi=False):
@@ -220,6 +212,12 @@ class EmceeEnsembleSampler(EnsembleMCMCAutocorrSupport, BaseMCMC, BaseSampler):
             lnpost = cp.get(section, "logpost-function")
         else:
             lnpost = None
-        return cls(model, nwalkers, logpost_function=lnpost,
+        obj = cls(model, nwalkers, logpost_function=lnpost,
                    nprocesses=nprocesses, use_mpi=use_mpi)
-
+        # add burn-in if it's specified
+        try:
+            bit = obj.burn_in_class.from_config(cp, obj)
+        except ConfigParser.NoSectionError:
+            bit = None
+        obj.set_burn_in(bit)
+        return obj
