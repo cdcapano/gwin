@@ -391,7 +391,6 @@ class BaseMCMC(object):
         pass
 
 
-
 class EnsembleMCMCAutocorrSupport(object):
     """Provides class methods for calculating ensemble ACFs/ACLs.
     """

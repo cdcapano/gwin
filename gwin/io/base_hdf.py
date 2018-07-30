@@ -214,6 +214,41 @@ class BaseInferenceFile(h5py.File):
             return 0
 
     @property
+    def thin_start(self):
+        """The default start index to use when reading samples.
+
+        This tries to read from ``thin_start`` in the ``attrs``. If it isn't
+        there, just returns 0."""
+        try:
+            return self.attrs['thin_start']
+        except KeyError:
+            return 0
+
+    @property
+    def thin_interval(self):
+        """The default interval to use when reading samples.
+
+        This tries to read from ``thin_interval`` in the ``attrs``. If it
+        isn't there, just returns 1.
+        """
+        try:
+            return self.attrs['thin_interval']
+        except KeyError:
+            return 1
+
+    @property
+    def thin_end(self):
+        """The defaut end index to use when reading samples.
+
+        This tries to read from ``thin_end`` in the ``attrs``. If it isn't
+        there, just returns None.
+        """
+        try:
+            return self.attrs['thin_end']
+        except KeyError:
+            return None
+
+    @property
     def cmd(self):
         """Returns the (last) saved command line.
 
@@ -557,7 +592,7 @@ class BaseInferenceFile(h5py.File):
             # check that we're not trying to overwrite this file
             if other == self.name:
                 raise IOError("destination is the same as this file")
-            other = InferenceFile(other, 'w')
+            other = self.__class__(other, 'w')
         # metadata
         self.copy_metadata(other)
         # info
@@ -572,15 +607,17 @@ class BaseInferenceFile(h5py.File):
                               parameter_names=parameter_names,
                               read_args=read_args,
                               write_args=write_args)
-        # if any down selection was done, re-set the burn in iterations and
-        # the acl, and the niterations.
-        # The last dimension of the samples returned by the sampler should
-        # be the number of iterations.
-        #if samples.shape[-1] != self.niterations:
-        #    other.attrs['acl'] = 1
-        #    other.attrs['burn_in_iterations'] = 0
-        #    other.attrs['niterations'] = samples.shape[-1]
-        #return other
+            # if any down selection was done, re-set the default
+            # thin-start/interval/end
+            p = self[self.samples_group].keys()[0]
+            my_shape = self[self.samples_group][p].shape
+            p = other[other.samples_group].keys()[0]
+            other_shape = other[other.samples_group][p].shape 
+            if my_shape != other_shape:
+                other.attrs['thin_start'] = 0
+                other.attrs['thin_interval'] = 1
+                other.attrs['thin_end'] = None
+        return other
 
 
 def write_kwargs_to_hdf_attrs(attrs, **kwargs):

@@ -196,8 +196,10 @@ class EnsembleMCMCIO(obect):
                 # dataset doesn't exist yet
                 self[group.format(param)] = acls[param]
         # write the maximum over all params
-        self.attrs['acl'] = numpy.array(acls.values()).max()
-        return self.attrs['acl']
+        acl = numpy.array(acls.values()).max()
+        self.attrs['acl'] = acl
+        # set the default thin interval to be the acl
+        self.attrs['thin_interval'] = acl
 
     def read_acls(self):
         """Reads the acls of all the parameters.
@@ -218,9 +220,11 @@ class EnsembleMCMCIO(obect):
     def write_burn_in(self, burn_in):
         """Write the given burn-in data to the given filename."""
         group = self[self.sampler_group]
+        group.attrs['burn_in_test'] = burn_in.burn_in_test
         group.attrs['is_burned_in'] = burn_in.is_burned_in
         group.attrs['burn_in_iteration'] = burn_in.burn_in_iteration
-        group.attrs['burn_in_test'] = burn_in.burn_in_test
+        # set the defaut thin_start to be the burn_in_iteration
+        self.attrs['thin_start'] = burn_in.burn_in_iteration
         # write individual test data
         for tst in burn_in.burn_in_data:
             key = 'burn_in_tests/{}'.format(tst)
