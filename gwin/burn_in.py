@@ -316,7 +316,7 @@ class MCMCBurnInTests(object):
         kwargs = {}
         if cp.has_option_tag(section, 'nacl', tag):
             kwargs['nacl'] = int(cp.get_opt_tag(section, 'nacl', tag))
-        if cp.has_option_tag(section, 'ks-threshold', tag)
+        if cp.has_option_tag(section, 'ks-threshold', tag):
             kwargs['ks_threshold'] = float(
                 cp.get_opt_tag(section, 'ks-threshold', tag))
         return cls(sampler, burn_in_test, **kwargs)
