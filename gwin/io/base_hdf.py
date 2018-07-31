@@ -25,6 +25,8 @@
 inference samplers generate.
 """
 
+from __future__ import absolute_import
+
 import os
 import sys
 import logging
@@ -38,8 +40,6 @@ from pycbc import DYN_RANGE_FAC
 from pycbc.io import FieldArray
 from pycbc.types import FrequencySeries
 from pycbc.waveform import parameters as wfparams
-
-from .. import sampler as gwin_sampler
 
 
 class BaseInferenceFile(h5py.File):
@@ -204,15 +204,6 @@ class BaseInferenceFile(h5py.File):
             Any other keyword args the sampler needs to write the posterior.
         """
         pass
-
-    @property
-    def sampler_class(self):
-        """Returns the sampler class that was used."""
-        try:
-            sampler = self.sampler_name
-        except KeyError:
-            return None
-        return gwin_sampler.samplers[sampler]
 
     @property
     def static_params(self):
