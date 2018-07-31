@@ -41,9 +41,10 @@ from pycbc.waveform import parameters as wfparams
 
 from .. import sampler as gwin_sampler
 
+
 class BaseInferenceFile(h5py.File):
     """Base class for all inference hdf files.
-    
+
     This is a subclass of the h5py.File object. It adds functions for
     handling reading and writing the samples from the samplers.
 
@@ -67,7 +68,7 @@ class BaseInferenceFile(h5py.File):
 
     def __getattr__(self, attr):
         """Things stored in ``.attrs`` are promoted to instance attributes.
-        
+
         Note that properties will be called before this, so if there are any
         properties that share the same name as something in ``.attrs``, that
         property will get returned.
@@ -162,7 +163,7 @@ class BaseInferenceFile(h5py.File):
         # convert to FieldArray
         samples = array_class.from_kwargs(**samples)
         # add the static params
-        for p,val in self.static_params.items():
+        for (p, val) in self.static_params.items():
             setattr(samples, p, val)
         return samples
 
@@ -612,7 +613,7 @@ class BaseInferenceFile(h5py.File):
             p = self[self.samples_group].keys()[0]
             my_shape = self[self.samples_group][p].shape
             p = other[other.samples_group].keys()[0]
-            other_shape = other[other.samples_group][p].shape 
+            other_shape = other[other.samples_group][p].shape
             if my_shape != other_shape:
                 other.attrs['thin_start'] = 0
                 other.attrs['thin_interval'] = 1
@@ -622,7 +623,7 @@ class BaseInferenceFile(h5py.File):
 
 def write_kwargs_to_hdf_attrs(attrs, **kwargs):
     """Writes the given keywords to the given ``attrs``.
-    
+
     If any keyword argument points to a dict, the keyword will point to a
     list of the dict's keys. Each key is then written to the attrs with its
     corresponding value.
