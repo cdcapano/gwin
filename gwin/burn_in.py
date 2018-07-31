@@ -30,9 +30,11 @@ import numpy
 from scipy.stats import ks_2samp
 
 from pycbc.filter import autocorrelation
+from pycbc.io.record import get_vars_from_arg
 
 # The value to use for a burn-in iteration if a chain is not burned in
 NOT_BURNED_IN_ITER = -1
+
 
 #
 # =============================================================================
@@ -41,6 +43,8 @@ NOT_BURNED_IN_ITER = -1
 #
 # =============================================================================
 #
+
+
 def ks_test(samples1, samples2, threshold=0.9):
     """Applies a KS test to determine if two sets of samples are the same.
 
@@ -145,7 +149,7 @@ def max_posterior(lnps_per_walker, dim):
     # find the first iteration in each chain where the logpost has exceeded
     # max_p - dim/2
     for ii in range(nwalkers):
-        chain = lnps_per_walker[ii,:]
+        chain = lnps_per_walker[ii, :]
         passedidx = numpy.where(chain >= criteria)[0]
         is_burned_in[ii] = is_burned_in = passedidx.size > 0
         if is_burned_in:
@@ -191,7 +195,6 @@ def posterior_step(logposts, dim):
 # =============================================================================
 #
 
-from pycbc.io.record import get_vars_from_arg
 
 class MCMCBurnInTests(object):
     """Provides methods for estimating burn-in of an ensemble MCMC."""
@@ -260,10 +263,10 @@ class MCMCBurnInTests(object):
         # do the test
         # is_the_same is a dictionary of params --> bool indicating whether or
         # not the 1D marginal is the same at the half way point
-        is_the_same = ks_test(samples1, samples2, threshold=self.ks_threshold) 
+        is_the_same = ks_test(samples1, samples2, threshold=self.ks_threshold)
         data = self.burn_in_data['ks_test']
         # required things to store
-        data['is_burned_in'] = all(is_the_same.values()) 
+        data['is_burned_in'] = all(is_the_same.values())
         if data['is_burned_in']:
             data['burn_in_iteration'] = int(niters/2.)
         else:
@@ -315,5 +318,5 @@ class MCMCBurnInTests(object):
             kwargs['nacl'] = int(cp.get_opt_tag(section, 'nacl', tag))
         if cp.has_option_tag(section, 'ks-threshold', tag)
             kwargs['ks_threshold'] = float(
-                cp.get_opt_tag(section, 'ks-threshold', tag)           
+                cp.get_opt_tag(section, 'ks-threshold', tag))
         return cls(sampler, burn_in_test, **kwargs)
