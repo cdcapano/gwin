@@ -30,14 +30,13 @@ from __future__ import absolute_import
 
 import numpy
 import emcee
-from pycbc.io import FieldArray
-from pycbc.filter import autocorrelation
 from pycbc.pool import choose_pool
 from pycbc.workflow import ConfigParser
 
 from .base import BaseSampler
-from .base_mcmc import (BaseMCMC, raw_samples_to_dict, raw_stats_to_dict)
-from gwin import burn_in
+from .base_mcmc import (BaseMCMC, MCMCAutocorrSupport, raw_samples_to_dict,
+                        raw_stats_to_dict)
+from gwin.burn_in import MCMCBurnInTests
 
 
 #
@@ -48,7 +47,7 @@ from gwin import burn_in
 # =============================================================================
 #
 
-class EmceeEnsembleSampler(EnsembleMCMCAutocorrSupport, BaseMCMC, BaseSampler):
+class EmceeEnsembleSampler(MCMCAutocorrSupport, BaseMCMC, BaseSampler):
     """This class is used to construct an MCMC sampler from the emcee
     package's EnsembleSampler.
 
@@ -65,7 +64,7 @@ class EmceeEnsembleSampler(EnsembleMCMCAutocorrSupport, BaseMCMC, BaseSampler):
     """
     name = "emcee"
     _io = EmceeFile
-    burn_in_class = burn_in.MCMCBurnInTests
+    burn_in_class = MCMCBurnInTests
 
     def __init__(self, model, nwalkers, logpost_function=None,
                  nprocesses=1, use_mpi=False):

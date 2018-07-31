@@ -23,7 +23,7 @@
 #
 """Provides constructor classes and convenience functions for MCMC samplers."""
 
-from abc import ABCMeta, abstractmethod, abstractproperty
+from abc import (ABCMeta, abstractmethod, abstractproperty)
 import logging
 import numpy
 
@@ -393,7 +393,7 @@ class BaseMCMC(object):
         pass
 
 
-class EnsembleMCMCAutocorrSupport(object):
+class MCMCAutocorrSupport(object):
     """Provides class methods for calculating ensemble ACFs/ACLs.
     """
 
