@@ -40,7 +40,8 @@ from pycbc.waveform import parameters as wfparams
 
 from .hdf import InferenceFile
 
-class EnsembleMCMCIO(obect):
+
+class MCMCIO(obect):
     """Abstract base class that provides some IO functions for ensemble MCMCs.
     """
     __metaclass__ = ABCMeta
@@ -113,8 +114,8 @@ class EnsembleMCMCIO(obect):
             fp[dataset_name][:, istart:istop] = samples[param]
 
     def read_raw_samples(self, fields,
-                           thin_start=None, thin_interval=None, thin_end=None,
-                           iteration=None, walkers=None, flatten=True):
+                         thin_start=None, thin_interval=None, thin_end=None,
+                         iteration=None, walkers=None, flatten=True):
         """Base function for reading samples.
 
         Parameters

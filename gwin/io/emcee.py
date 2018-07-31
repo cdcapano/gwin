@@ -27,7 +27,8 @@
 from .base_hdf import BaseInferenceFile
 from .base_mcmc import EnsembleMCMCIO
 
-class EmceeFile(EnsembleMCMCIO, BaseInferenceFile):
+
+class EmceeFile(MCMCIO, BaseInferenceFile):
     """Class to handle file IO for the ``emcee`` sampler."""
 
     name = 'emcee_file'
@@ -69,5 +70,3 @@ class EmceeFile(EnsembleMCMCIO, BaseInferenceFile):
         except KeyError:
             # dataset doesn't exist yet, create it
             self[group] = acceptance_fraction
-
-
