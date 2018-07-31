@@ -37,7 +37,7 @@ from pycbc.workflow import ConfigParser
 
 from .base import BaseSampler
 from .base_mcmc import (BaseMCMC, raw_samples_to_dict, raw_stats_to_dict)
-from ../ import burn_in
+from gwin import burn_in
 
 
 #
@@ -111,7 +111,7 @@ class EmceeEnsembleSampler(EnsembleMCMCAutocorrSupport, BaseMCMC, BaseSampler):
     def samples(self):
         """A dict mapping ``variable_params`` to arrays of samples currently
         in memory.
-        
+
         The arrays have shape ``nwalkers x niterations``.
         """
         # emcee stores samples to it's chain attribute as a
@@ -122,7 +122,7 @@ class EmceeEnsembleSampler(EnsembleMCMCAutocorrSupport, BaseMCMC, BaseSampler):
     @property
     def model_stats(self):
         """A dict mapping the model's ``default_stats`` to arrays of values.
-        
+
         The returned array has shape ``nwalkers x niterations``.
         """
         return raw_samples_to_dict(self._sampler.blobs, raw_stats)
@@ -213,7 +213,7 @@ class EmceeEnsembleSampler(EnsembleMCMCAutocorrSupport, BaseMCMC, BaseSampler):
         else:
             lnpost = None
         obj = cls(model, nwalkers, logpost_function=lnpost,
-                   nprocesses=nprocesses, use_mpi=use_mpi)
+                  nprocesses=nprocesses, use_mpi=use_mpi)
         # add burn-in if it's specified
         try:
             bit = obj.burn_in_class.from_config(cp, obj)

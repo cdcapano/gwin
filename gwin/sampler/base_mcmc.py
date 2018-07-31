@@ -34,6 +34,8 @@ import numpy
 #
 # =============================================================================
 #
+
+
 def raw_samples_to_dict(sampler, raw_samples):
     """Convenience function for converting ND array to a dict of samples.
 
@@ -131,11 +133,11 @@ class BaseMCMC(object):
     _nwalkers = None
     _burn_in = None
 
-    @abstractproperty(self):
+    @abstractproperty
     def base_shape(self):
-        """What shape the sampler's samples arrays are in, excluding 
+        """What shape the sampler's samples arrays are in, excluding
         the iterations dimension.
-        
+
         For example, if a sampler uses 20 walkers and 3 temperatures, this
         would be ``(3, 20)``. If a sampler only uses a single walker and no
         temperatures this would be ``()``.
@@ -173,7 +175,7 @@ class BaseMCMC(object):
     @property
     def p0(self):
         """The starting position of the walkers in the sampling param space.
-        
+
         The returned object is a dict mapping the sampling parameters to the
         values.
         """

@@ -439,7 +439,7 @@ class GaussianNoise(BaseDataModel):
 
     def write_metadata(self, fp):
         """Adds writing the psds and lognl, since it's a constant.
-        
+
         The lognl is written to the sample group's ``attrs``.
         """
         super(GaussianNoise, self).write_data(fp)

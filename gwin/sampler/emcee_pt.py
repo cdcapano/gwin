@@ -26,9 +26,11 @@ This modules provides classes and functions for using the emcee sampler
 packages for parameter estimation.
 """
 
-# This is needed for two reason
+# The following two classes are needed for two reason
 # 1) pools freeze state when created and so classes *cannot be updated*
 # 2) methods cannot be pickled.
+
+
 class _callprior(object):
     """Calls the model's prior function, and ensures that no
     metadata is returned."""

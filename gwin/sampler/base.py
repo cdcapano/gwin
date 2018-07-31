@@ -55,7 +55,7 @@ class BaseSampler(object):
     def __init__(self, model):
         self.model = model
 
-    #@classmethod # uncomment when we move to python 3.3
+    # @classmethod <--uncomment when we move to python 3.3
     @abstractmethod
     def from_config(cls, cp, model, nprocesses=1, use_mpi=False,
                     **kwargs):
@@ -85,7 +85,7 @@ class BaseSampler(object):
     def samples(self):
         """A dict mapping variable_params to arrays of samples currently
         in memory. The dictionary may also contain sampling_params.
-        
+
         The sample arrays may have any shape, and may or may not be thinned.
         """
         pass
@@ -102,7 +102,7 @@ class BaseSampler(object):
     @abstractmethod
     def run(self):
         """This function should run the sampler.
-        
+
         Any checkpointing should be done internally in this function.
         """
         pass
@@ -111,7 +111,7 @@ class BaseSampler(object):
     def io(self):
         """A class that inherits from ``BaseInferenceFile`` to handle IO with
         an hdf file.
-        
+
         This should be a class, not an instance of class, so that the sampler
         can initialize it when needed.
         """
@@ -121,7 +121,7 @@ class BaseSampler(object):
     def set_initial_conditions(self, initial_distribution=None,
                                samples_file=None):
         """Sets up the starting point for the sampler.
-        
+
         Should also set the sampler's random state.
         """
         pass
@@ -144,7 +144,7 @@ class BaseSampler(object):
         # write the model's metadata
         self.model.write_metadata(fp)
         self._write_more_metadata(fp)
-        
+
     def _write_more_metadata(self, fp):
         """Optional method that can be implemented if a sampler wants to write
         more metadata than just its name and the model's metadata.
@@ -160,7 +160,7 @@ class BaseSampler(object):
 
         If the output file already exists, an ``OSError`` will be raised.
         This can be overridden by setting ``force`` to ``True``.
-        
+
         Parameters
         ----------
         sampler : sampler instance
@@ -231,7 +231,7 @@ def create_new_output_file(sampler, filename, force=False, injection_file=None,
 
     If the output file already exists, an ``OSError`` will be raised. This can
     be overridden by setting ``force`` to ``True``.
-    
+
     Parameters
     ----------
     sampler : sampler instance
@@ -285,10 +285,11 @@ def intial_dist_from_config(cp):
                      "than the prior.")
         initial_dists = distributions.read_distributions_from_config(
             cp, section="initial")
-        constraints = distributions.read_constraints_from_config(cp,
-            constraint_section="initial_constraint")
-        init_dist = distributions.JointDistribution(sampler.variable_params,
-            *initial_dists, **{"constraints" : constraints})
+        constraints = distributions.read_constraints_from_config(
+            cp, constraint_section="initial_constraint")
+        init_dist = distributions.JointDistribution(
+            sampler.variable_params, *initial_dists,
+            **{"constraints": constraints})
     else:
         init_dist = None
     return init_dist
