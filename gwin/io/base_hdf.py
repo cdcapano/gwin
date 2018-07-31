@@ -64,7 +64,23 @@ class BaseInferenceFile(h5py.File):
     injections_group = 'injections'
 
     def __init__(self, path, mode=None, **kwargs):
-        super(BaseInferenceFile, self).__init__(path, mode, **kwargs)
+        fp = super(BaseInferenceFile, self).__init__(path, mode, **kwargs)
+        # check that file type matches self
+        try:
+            filetype = fp.attrs['filetype']
+        except KeyError:
+            if mode == 'w':
+                # first time creating the file, add this class's name
+                filetype = self.name
+                fp.attrs['filetype'] = filetype
+            else:
+                filetype = None
+        if filetype != self.name:
+            raise ValueError("This file has filetype {}, whereas this class "
+                             "is named {}. This indicates that the file was "
+                             "not written by this class, and so cannot be "
+                             "read by this class.".format(filetype, self.name))
+        return fp
 
     def __getattr__(self, attr):
         """Things stored in ``.attrs`` are promoted to instance attributes.
@@ -444,42 +460,26 @@ class BaseInferenceFile(h5py.File):
 
         Parameters
         ----------
-        thin_start : {None, int}
-            The starting index to use. If None, will try to retrieve the
-            `burn_in_iterations` from the given file. If no
-            `burn_in_iterations` exists, will default to the start of the
-            array.
-        thin_interval : {None, int}
-            The interval to use. If None, will try to retrieve the acl from the
-            given file. If no acl attribute exists, will default to 1.
-        thin_end : {None, int}
-            The end index to use. If None, will retrieve to the end of the
-            array.
+        thin_start : int, optional
+            The starting index to use. If None, will use the ``thin_start``
+            attribute.
+        thin_interval : int, optional
+            The interval to use. If None, will use the ``thin_interval``
+            attribute.
+        thin_end : int, optional
+            The end index to use. If None, will use the ``thin_end`` attribute.
 
         Returns
         -------
         slice :
             The slice needed.
         """
-
-        # default is to skip burn in samples
         if thin_start is None:
-            try:
-                thin_start = self.burn_in_iterations
-                # if the sampler hasn't burned in, the burn_in_iterations will
-                # be the same as the number of iterations, which would result
-                # in 0 samples. In that case, just use the last one
-                if thin_start == self.niterations:
-                    thin_start = thin_start - 1
-            except KeyError:
-                pass
-
-        # default is to use stored ACL and accept every i-th sample
+            thin_start = self.thin_start
         if thin_interval is None:
-            try:
-                thin_interval = int(numpy.ceil(self.acl))
-            except KeyError:
-                pass
+            thin_interval = self.thin_interval
+        if thin_end is None:
+            thin_end = self.thin_end
         return slice(thin_start, thin_end, thin_interval)
 
     def copy_metadata(self, other):
