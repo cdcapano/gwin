@@ -23,9 +23,14 @@
 #
 """Provides constructor classes and convenience functions for MCMC samplers."""
 
+from __future__ import absolute_import
+
 from abc import (ABCMeta, abstractmethod, abstractproperty)
 import logging
 import numpy
+from pycbc.filter import autocorrelation
+
+from ..io import validate_checkpoint_files
 
 #
 # =============================================================================
@@ -65,7 +70,10 @@ def raw_samples_to_dict(sampler, raw_samples):
     samples = sampler.model.prior_distribution.apply_boundary_conditions(
         **samples)
     # apply transforms to go to model's variable params space
-    return sampler.model.sampling_transforms.apply(samples, inverse=True)
+    if sampler.model.sampling_transforms is not None:
+        samples = sampler.model.sampling_transforms.apply(
+            samples, inverse=True)
+    return samples
 
 
 def raw_stats_to_dict(sampler, raw_stats):
@@ -132,6 +140,7 @@ class BaseMCMC(object):
     _p0 = None
     _nwalkers = None
     _burn_in = None
+    _checkpoint_interval = None
 
     @abstractproperty
     def base_shape(self):
@@ -155,12 +164,22 @@ class BaseMCMC(object):
     def niterations(self):
         """Get the current number of iterations."""
         itercounter = self._itercounter
-        if _itercounter is None:
+        if itercounter is None:
             itercounter = 0
         lastclear = self._lastclear
         if lastclear is None:
             lastclear = 0
         return itercounter + lastclear
+
+    @property
+    def checkpoint_interval(self):
+        """The number of iterations to do between checkpoints."""
+        return self._checkpoint_interval
+
+    @abstractmethod
+    def clear_samples(self):
+        """A method to clear samples from memory."""
+        pass
 
     @property
     def pos(self):
@@ -209,19 +228,20 @@ class BaseMCMC(object):
                 samples = fp.read_samples(self.variable_params,
                                           iteration=-1)
                 # make sure we have the same shape
-                assert(samples.shape[:-1] == self.samples_shape,
+                assert samples.shape == self.base_shape, (
                        "samples in file {} have shape {}, but I have shape {}".
-                       format(samples_file, samples.shape, self.samples_shape))
+                       format(samples_file, samples.shape, self.base_shape))
             # transform to sampling parameter space
-            samples = self.model.sampling_transforms.apply(samples)
+            if self.model.sampling_transforms is not None:
+                samples = self.model.sampling_transforms.apply(samples)
         # draw random samples if samples are not provided
         else:
-            nsamples = numpy.prod(self.samples_shape)
+            nsamples = numpy.prod(self.base_shape)
             samples = self.model.prior_rvs(size=nsamples, prior=prior).reshape(
-                self.samples_shape)
-        # store as ND array with shape [samples_shape] x nparams
+                self.base_shape)
+        # store as ND array with shape [base_shape] x nparams
         ndim = len(self.variable_params)
-        p0 = numpy.ones(list(self.samples_shape)+[ndim])
+        p0 = numpy.ones(list(self.base_shape)+[ndim])
         for i, param in enumerate(self.sampling_params):
             p0[..., i] = samples[param]
         self._p0 = p0
@@ -246,12 +266,6 @@ class BaseMCMC(object):
         """
         pass
 
-    @abstractmethod
-    def write_state(self, filename):
-        """Saves the state of the sampler to the given file.
-        """
-        pass
-
     def run(self):
         """Runs the sampler."""
 
@@ -266,7 +280,7 @@ class BaseMCMC(object):
         # contains (either due to sampler burn-in, or a previous checkpoint)
         try:
             with self.io(self.checkpoint_file, "r") as fp:
-                start = fp.niterations
+                startiter = fp.niterations
         except KeyError:
             startiter = 0
         if self.require_indep_samples:
@@ -312,7 +326,7 @@ class BaseMCMC(object):
                 nsamples += iterinterval * self.nwalkers
             self._itercounter = startiter = enditer
 
-    @propetry
+    @property
     def burn_in(self):
         """The class for doing burn-in tests (if specified)."""
         return self._burn_in
@@ -321,6 +335,7 @@ class BaseMCMC(object):
         """Sets the object to use for doing burn-in tests."""
         self._burn_in = burn_in
 
+    @property
     def n_indep_samples(self):
         """The number of independent samples post burn-in that the sampler has
         acquired so far."""
@@ -360,25 +375,26 @@ class BaseMCMC(object):
         # it, in which case we don't need to do it again.
         if self.acls is None:
             logging.info("Computing acls")
-            self.acls = self.compute_acls(self.checkpoint_file)
+            self.acls = self.compute_acl(self.checkpoint_file)
         # write
         for fn in [self.checkpoint_file, self.backup_file]:
             with self.io(fn, "a") as fp:
                 if self.burn_in is not None:
                     fp.write_burn_in(self.burn_in)
                 if self.acls is not None:
-                    fp.write_acls(acls)
+                    fp.write_acls(self.acls)
                 # write the current number of iterations
                 fp.attrs['niterations'] = self.niterations
                 fp.attrs['n_indep_samples'] = self.n_indep_samples
         # check validity
+        logging.info("Validating checkpoint and backup files")
         checkpoint_valid = validate_checkpoint_files(
             self.checkpoint_file, self.backup_file)
         if not checkpoint_valid:
             raise IOError("error writing to checkpoint file")
         # clear the in-memory chain to save memory
-        logging.info("Clearing chain")
-        self.clear_chain()
+        logging.info("Clearing samples from memory")
+        self.clear_samples()
 
     @abstractmethod
     def compute_acf(cls, filename, **kwargs):
@@ -398,8 +414,8 @@ class MCMCAutocorrSupport(object):
     """
 
     @classmethod
-    def compute_acfs(cls, filename, start_index=None, end_index=None,
-                     per_walker=False, walkers=None, parameters=None):
+    def compute_acf(cls, filename, start_index=None, end_index=None,
+                    per_walker=False, walkers=None, parameters=None):
         """Computes the autocorrleation function of the model params in the
         given file.
 
@@ -435,7 +451,7 @@ class MCMCAutocorrSupport(object):
             ``nwalkers x niterations``.
         """
         acfs = {}
-        with cls.io(filename, 'r') as fp:
+        with cls._io(filename, 'r') as fp:
             if parameters is None:
                 parameters = fp.variable_params
             if isinstance(parameters, str) or isinstance(parameters, unicode):
@@ -446,15 +462,15 @@ class MCMCAutocorrSupport(object):
                     if walkers is None:
                         walkers = numpy.arange(fp.nwalkers)
                     arrays = [
-                        cls.compute_acfs(filename, start_index=start_index,
-                                         end_index=end_index,
-                                         per_walker=False, walkers=ii,
-                                         parameters=param)[param]
+                        cls.compute_acf(filename, start_index=start_index,
+                                        end_index=end_index,
+                                        per_walker=False, walkers=ii,
+                                        parameters=param)[param]
                         for ii in walkers]
                     acfs[param] = numpy.vstack(arrays)
                 else:
                     samples = fp.read_raw_samples(
-                        fp, param, thin_start=start_index, thin_interval=1,
+                        param, thin_start=start_index, thin_interval=1,
                         thin_end=end_index, walkers=walkers,
                         flatten=False)[param]
                     samples = samples.mean(axis=0)
@@ -463,7 +479,7 @@ class MCMCAutocorrSupport(object):
         return acfs
 
     @classmethod
-    def compute_acls(cls, filename, start_index=None, end_index=None):
+    def compute_acl(cls, filename, start_index=None, end_index=None):
         """Computes the autocorrleation length for all model params in the
         given file.
 
@@ -489,10 +505,10 @@ class MCMCAutocorrSupport(object):
             A dictionary giving the ACL for each parameter.
         """
         acls = {}
-        with cls.io(filename, 'r') as fp:
+        with cls._io(filename, 'r') as fp:
             for param in fp.variable_params:
                 samples = fp.read_raw_samples(
-                    fp, param, thin_start=start_index, thin_interval=1,
+                    param, thin_start=start_index, thin_interval=1,
                     thin_end=end_index, flatten=False)[param]
                 samples = samples.mean(axis=0)
                 acl = autocorrelation.calculate_acl(samples)

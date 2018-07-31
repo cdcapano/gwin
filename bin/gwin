@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright (C) 2016 Christopher M. Biwer
+# Copyright (C) 2016 Christopher M. Biwer, Collin Capano
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the
@@ -32,8 +32,6 @@ from pycbc.waveform import generator
 
 import gwin
 from gwin import (__version__, burn_in, option_utils)
-from gwin.io.hdf import InferenceFile
-from gwin.option_utils import validate_checkpoint_files
 from gwin.calibration import Recalibrate
 
 # command line usage
@@ -53,6 +51,12 @@ parser.add_argument("--save-backup", action="store_true",
                     default=False,
                     help="Don't delete the backup file after the run has "
                          "completed.")
+# parallelization options
+parser.add_argument("--nprocesses", type=int, default=1,
+                    help="Number of processes to use. If not given then only "
+                         "a single core will be used.")
+parser.add_argument("--use-mpi", action='store_true', default=False,
+                    help="Use MPI to parallelize the sampler")
 # run duration options
 parser.add_argument("--nsamples", type=int, required=True,
                     help="The number of samples the sampler should get. "
@@ -143,8 +147,9 @@ with ctx:
     # get ifo-specific instances of calibration model
     if cp.has_section('calibration'):
         logging.info("Initializing calibration model")
-        recalibration = {ifo: Recalibrate.from_config(cp, ifo, section='calibration') for
-                         ifo in opts.instruments}
+        recalibration = {ifo: Recalibrate.from_config(cp, ifo,
+                                                      section='calibration')
+                         for ifo in opts.instruments}
         model_args['recalibration'] = recalibration
 
     # get gates for templates
@@ -156,10 +161,6 @@ with ctx:
 
     # construct class that will return the natural logarithm of likelihood
     model = gwin.models.read_from_config(cp, **model_args)
-
-    # FIXME: move to MCMC sampler
-    #burn_in_eval = burn_in.BurnIn(opts.burn_in_function,
-    #                            min_iterations=opts.min_burn_in)
 
     logging.info("Setting up sampler")
 
@@ -176,17 +177,18 @@ with ctx:
     # injection file all detectors. This
     # should be fixed in a future version of PyCBC. Once it is,
     # update this. Until then, just use the first file.
-    injection_file = opts.injection_file.values()[0]  # None if not set
+    if opts.injection_file:
+        injection_file = opts.injection_file.values()[0]  # None if not set
+    else:
+        injection_file = None
     sampler.setup_output(opts.output_file, force=opts.force,
-                         injection_file=injetion_file)
+                         injection_file=injection_file)
 
-    # set the walkers initial positions from a pre-existing InferenceFile
-    # or a specific initial distribution listed in the configuration file
-    # or else use the prior distributions to set initial positions
-    logging.info("Setting walkers initial conditions for varying parameters")
+    # Figure out where to get the initial conditions from: a samples file,
+    # the checkpoint file, the prior, or an initial prior.
     samples_file = opts.samples_file
     # use the checkpoint file instead if resume from checkpoint
-    if sampler.checkpoint_valid:
+    if not sampler.new_checkpoint:
         samples_file = sampler.checkpoint_file
     if samples_file is not None:
         logging.info("Initial positions taken from last iteration in %s",
@@ -194,9 +196,9 @@ with ctx:
         init_prior = None
     else:
         # try to load an initial distribution from the config file
-        init_prior = gwin.sampler.inital_dist_from_config(cp)
+        init_prior = gwin.sampler.initial_dist_from_config(cp)
 
-    sampler.set_initial_conditions(intial_distribution=init_prior,
+    sampler.set_initial_conditions(initial_distribution=init_prior,
         samples_file=samples_file)
 
     # Set the target number of samples for the sampler

@@ -24,24 +24,12 @@
 """Provides I/O that is specific to MCMC samplers.
 """
 
-import os
-import sys
-import logging
-from abc import ABCMeta
+from abc import (ABCMeta, abstractmethod)
 
 import numpy
 
-import h5py
 
-from pycbc import DYN_RANGE_FAC
-from pycbc.io import FieldArray
-from pycbc.types import FrequencySeries
-from pycbc.waveform import parameters as wfparams
-
-from .hdf import InferenceFile
-
-
-class MCMCIO(obect):
+class MCMCIO(object):
     """Abstract base class that provides some IO functions for ensemble MCMCs.
     """
     __metaclass__ = ABCMeta
@@ -82,25 +70,27 @@ class MCMCIO(obect):
             h5py.
         """
         nwalkers, niterations = samples.values()[0].shape
-        assert(all(p.shape == (nwalkers, niterations)
-                   for p in samples.values()),
+        assert all(p.shape == (nwalkers, niterations)
+                   for p in samples.values()), (
                "all samples must have the same shape")
         if max_iterations is not None and max_iterations < niterations:
             raise IndexError("The provided max size is less than the "
                              "number of iterations")
         group = self.samples_group + '/{name}'
+        if parameters is None:
+            parameters = samples.keys()
         # loop over number of dimensions
         for param in parameters:
             dataset_name = group.format(name=param)
             istart = start_iteration
             try:
-                fp_niterations = fp[dataset_name].shape[-1]
+                fp_niterations = self[dataset_name].shape[-1]
                 if istart is None:
                     istart = fp_niterations
                 istop = istart + niterations
                 if istop > fp_niterations:
                     # resize the dataset
-                    fp[dataset_name].resize(istop, axis=1)
+                    self[dataset_name].resize(istop, axis=1)
             except KeyError:
                 # dataset doesn't exist yet
                 if istart is not None and istart != 0:
@@ -108,10 +98,10 @@ class MCMCIO(obect):
                                      "but dataset doesn't exist yet")
                 istart = 0
                 istop = istart + niterations
-                fp.create_dataset(dataset_name, (nwalkers, istop),
-                                  maxshape=(nwalkers, max_iterations),
-                                  dtype=float, fletcher32=True)
-            fp[dataset_name][:, istart:istop] = samples[param]
+                self.create_dataset(dataset_name, (nwalkers, istop),
+                                    maxshape=(nwalkers, max_iterations),
+                                    dtype=float, fletcher32=True)
+            self[dataset_name][:, istart:istop] = samples[param]
 
     def read_raw_samples(self, fields,
                          thin_start=None, thin_interval=None, thin_end=None,
@@ -139,16 +129,14 @@ class MCMCIO(obect):
         if iteration is not None:
             get_index = iteration
         else:
-            if thin_end is None:
-                # use the number of current iterations
-                thin_end = fp.niterations
-            get_index = fp.get_slice(thin_start=thin_start, thin_end=thin_end,
-                                     thin_interval=thin_interval)
+            get_index = self.get_slice(thin_start=thin_start,
+                                       thin_end=thin_end,
+                                       thin_interval=thin_interval)
         # load
         group = self.samples_group + '/{name}'
         arrays = {}
         for name in fields:
-            arr = fp[group.format(name=name)][widx, get_index]
+            arr = self[group.format(name=name)][widx, get_index]
             if flatten:
                 arr = arr.flatten()
             arrays[name] = arr

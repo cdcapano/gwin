@@ -26,12 +26,15 @@ Defines the base sampler class to be inherited by all samplers.
 """
 
 from abc import ABCMeta, abstractmethod, abstractproperty
+import os
 import numpy
+import shutil
 from pycbc.io import FieldArray
 from pycbc.filter import autocorrelation
 import h5py
 import logging
 
+from ..io import validate_checkpoint_files
 
 #
 # =============================================================================
@@ -176,20 +179,23 @@ class BaseSampler(object):
         checkpoint_file = output_file + '.checkpoint'
         backup_file = output_file + '.bkup'
         # check if we have a good checkpoint and/or backup file
+        logging.info("Looking for checkpoint file")
         checkpoint_valid = validate_checkpoint_files(checkpoint_file,
                                                      backup_file)
         # Create a new file if the checkpoint doesn't exist, or if it is
         # corrupted
+        self.new_checkpoint = False # keeps track if this is a new file or not
         if not checkpoint_valid:
-            self.create_new_output_file(checkpoint_file, force=force,
-                                        injection_file=injection_file)
+            logging.info("Checkpoint not found or not valid")
+            create_new_output_file(self, checkpoint_file, force=force,
+                                   injection_file=injection_file)
             # now the checkpoint is valid
-            checkpoint_valid = True
+            self.new_checkpoint = True
             # copy to backup
             shutil.copy(checkpoint_file, backup_file)
         # write the command line
         for fn in [checkpoint_file, backup_file]:
-            with sampler.io(fn, "a") as fp:
+            with self.io(fn, "a") as fp:
                 fp.write_command_line()
         # store
         self.checkpoint_file = checkpoint_file
@@ -263,7 +269,7 @@ def create_new_output_file(sampler, filename, force=False, injection_file=None,
             fp.write_injections(injection_file)
 
 
-def intial_dist_from_config(cp):
+def initial_dist_from_config(cp):
     """Loads a distribution for the sampler start from the given config file.
 
     A distribution will only be loaded if the config file has a [initial-*]

@@ -36,7 +36,9 @@ from pycbc.workflow import ConfigParser
 from .base import BaseSampler
 from .base_mcmc import (BaseMCMC, MCMCAutocorrSupport, raw_samples_to_dict,
                         raw_stats_to_dict)
-from gwin.burn_in import MCMCBurnInTests
+from ..burn_in import MCMCBurnInTests
+from ..io import EmceeFile
+from .. import models
 
 
 #
@@ -66,8 +68,8 @@ class EmceeEnsembleSampler(MCMCAutocorrSupport, BaseMCMC, BaseSampler):
     _io = EmceeFile
     burn_in_class = MCMCBurnInTests
 
-    def __init__(self, model, nwalkers, logpost_function=None,
-                 nprocesses=1, use_mpi=False):
+    def __init__(self, model, nwalkers, checkpoint_interval=None,
+                 logpost_function=None, nprocesses=1, use_mpi=False):
 
         self.model = model
         # create a wrapper for calling the model
@@ -93,6 +95,7 @@ class EmceeEnsembleSampler(MCMCAutocorrSupport, BaseMCMC, BaseSampler):
         # to have the same state as the numpy generator
         rstate = numpy.random.get_state()
         self._sampler.random_state = rstate
+        self._checkpoint_interval = checkpoint_interval
 
     @property
     def io(self):
@@ -124,7 +127,11 @@ class EmceeEnsembleSampler(MCMCAutocorrSupport, BaseMCMC, BaseSampler):
 
         The returned array has shape ``nwalkers x niterations``.
         """
-        return raw_samples_to_dict(self._sampler.blobs, raw_stats)
+        raw_stats = numpy.array(self._sampler.blobs)
+        # raw_stats has shape niterations x nwalkers x nstats; transpose
+        # so that it has shape nwalkers x niterations x nstats
+        raw_stats = raw_stats.transpose((1, 0, 2))
+        return raw_samples_to_dict(self, raw_stats)
 
     def clear_samples(self):
         """Clears the samples and stats from memory.
@@ -154,20 +161,10 @@ class EmceeEnsembleSampler(MCMCAutocorrSupport, BaseMCMC, BaseSampler):
             Number of iterations to run the sampler for.
         \**kwargs :
             All other keyword arguments are passed to the emcee sampler.
-
-        Returns
-        -------
-        p : numpy.array
-            An array of current walker positions with shape (nwalkers, ndim).
-        lnpost : numpy.array
-            The list of log posterior probabilities for the walkers at
-            positions p, with shape (nwalkers, ndim).
-        rstate :
-            The current state of the random number generator.
         """
         pos = self._pos
         if pos is None:
-            pos = self.p0
+            pos = self._p0
         res = self._sampler.run_mcmc(pos, niterations, **kwargs)
         p, _, _ = res[0], res[1], res[2]
         # update the positions
@@ -207,16 +204,22 @@ class EmceeEnsembleSampler(MCMCAutocorrSupport, BaseMCMC, BaseSampler):
             "name in section [sampler] must match mine")
         # get the number of walkers to use
         nwalkers = int(cp.get(section, "nwalkers"))
+        # get the checkpoint interval, if it's specified
+        if cp.has_option(section, "checkpoint-interval"):
+            checkpoint_interval = int(cp.get(section, "checkpoint-interval"))
+        else:
+            checkpoint_interval = None
         if cp.has_option(section, "logpost-function"):
             lnpost = cp.get(section, "logpost-function")
         else:
             lnpost = None
-        obj = cls(model, nwalkers, logpost_function=lnpost,
-                  nprocesses=nprocesses, use_mpi=use_mpi)
+        obj = cls(model, nwalkers, checkpoint_interval=checkpoint_interval,
+                  logpost_function=lnpost, nprocesses=nprocesses,
+                  use_mpi=use_mpi)
         # add burn-in if it's specified
         try:
             bit = obj.burn_in_class.from_config(cp, obj)
-        except ConfigParser.NoSectionError:
+        except ConfigParser.Error:
             bit = None
         obj.set_burn_in(bit)
         return obj

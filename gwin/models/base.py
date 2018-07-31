@@ -746,7 +746,7 @@ class BaseModel(object):
 
     def write_metadata(self, fp):
         """Writes metadata to the given file handler."""
-        fp.attrs['model'] = sampler.model.name
+        fp.attrs['model'] = self.name
         fp.attrs['variable_params'] = list(self.variable_params)
         fp.attrs['sampling_params'] = list(self.sampling_params)
         write_kwargs_to_hdf_attrs(fp.attrs, static_params=self.static_params)

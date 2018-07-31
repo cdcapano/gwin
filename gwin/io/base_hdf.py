@@ -64,15 +64,15 @@ class BaseInferenceFile(h5py.File):
     injections_group = 'injections'
 
     def __init__(self, path, mode=None, **kwargs):
-        fp = super(BaseInferenceFile, self).__init__(path, mode, **kwargs)
+        super(BaseInferenceFile, self).__init__(path, mode, **kwargs)
         # check that file type matches self
         try:
-            filetype = fp.attrs['filetype']
+            filetype = self.attrs['filetype']
         except KeyError:
             if mode == 'w':
                 # first time creating the file, add this class's name
                 filetype = self.name
-                fp.attrs['filetype'] = filetype
+                self.attrs['filetype'] = filetype
             else:
                 filetype = None
         if filetype != self.name:
@@ -80,7 +80,6 @@ class BaseInferenceFile(h5py.File):
                              "is named {}. This indicates that the file was "
                              "not written by this class, and so cannot be "
                              "read by this class.".format(filetype, self.name))
-        return fp
 
     def __getattr__(self, attr):
         """Things stored in ``.attrs`` are promoted to instance attributes.
@@ -314,7 +313,7 @@ class BaseInferenceFile(h5py.File):
         if state is None:
             state = numpy.random.get_state()
         s, arr, pos, has_gauss, cached_gauss = state
-        if group in self:
+        if dataset_name in self:
             self[dataset_name][:] = arr
         else:
             self.create_dataset(dataset_name, arr.shape, fletcher32=True,
@@ -635,52 +634,3 @@ def write_kwargs_to_hdf_attrs(attrs, **kwargs):
             write_kwargs_to_hdf_attrs(attrs, **val)
         else:
             attrs[arg] = val
-
-
-def check_integrity(filename):
-    """Checks the integrity of an InferenceFile.
-
-    Checks done are:
-
-        * can the file open?
-        * do all of the datasets in the samples group have the same shape?
-        * can the first and last sample in all of the datasets in the samples
-          group be read?
-
-    If any of these checks fail, an IOError is raised.
-
-    Parameters
-    ----------
-    filename: str
-        Name of an InferenceFile to check.
-
-    Raises
-    ------
-    ValueError
-        If the given file does not exist.
-    KeyError
-        If the samples group does not exist.
-    IOError
-        If any of the checks fail.
-    """
-    # check that the file exists
-    if not os.path.exists(filename):
-        raise ValueError("file {} does not exist".format(filename))
-    # if the file is corrupted such that it cannot be opened, the next line
-    # will raise an IOError
-    with InferenceFile(filename, 'r') as fp:
-        # check that all datasets in samples have the same shape
-        parameters = fp[fp.samples_group].keys()
-        group = fp.samples_group + '/{}'
-        # use the first parameter as a reference shape
-        ref_shape = fp[group.format(parameters[0])].shape
-        if not all(fp[group.format(param)].shape == ref_shape
-                   for param in parameters):
-            raise IOError("not all datasets in the samples group have the "
-                          "same shape")
-        # check that we can read the first/last sample
-        firstidx = tuple([0]*len(ref_shape))
-        lastidx = tuple([-1]*len(ref_shape))
-        for param in parameters:
-            fp[group.format(param)][firstidx]
-            fp[group.format(param)][lastidx]

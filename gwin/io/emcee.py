@@ -25,7 +25,7 @@
 """
 
 from .base_hdf import BaseInferenceFile
-from .base_mcmc import EnsembleMCMCIO
+from .base_mcmc import MCMCIO
 
 
 class EmceeFile(MCMCIO, BaseInferenceFile):
@@ -70,3 +70,6 @@ class EmceeFile(MCMCIO, BaseInferenceFile):
         except KeyError:
             # dataset doesn't exist yet, create it
             self[group] = acceptance_fraction
+
+    def write_posterior(self, filename, **kwargs):
+        pass
