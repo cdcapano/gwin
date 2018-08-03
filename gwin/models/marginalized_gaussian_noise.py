@@ -505,4 +505,7 @@ class MarginalizedGaussianNoise(GaussianNoise):
                     hd_i)
         mf_snr = abs(mf_snr)
         loglr = self._eval_loglr(mf_snr, opt_snr)
+        # also store the loglikelihood, to ensure it is populated in the
+        # current stats even if loglikelihood is never called
+        self._current_stats.loglikelihood = loglr + self.lognl
         return loglr
