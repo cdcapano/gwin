@@ -79,45 +79,6 @@ def ks_test(samples1, samples2, threshold=0.9):
     return is_the_same
 
 
-def n_acl(chain, nacls=5):
-    """Burn in based on ACL.
-
-    This applies the following test to determine burn in:
-
-    1. The first half of the chain is ignored.
-
-    2. An ACL is calculated from the second half.
-
-    3. If ``nacls`` times the ACL is < the number of iterations / 2,
-       the chain is considered to be burned in at the half-way point.
-
-    Parameters
-    ----------
-    chain : array
-        The chain of samples to apply the test to. Must be 1D.
-    nacls : int, optional
-        Number of ACLs to use for burn in. Default is 5.
-
-    Returns
-    -------
-    burn_in_idx : int
-        The burn in index. If the chain is not burned in, will be equal to the
-        length of the chain.
-    is_burned_in : bool
-        Whether or not the chain is burned in.
-    acl : int
-        The ACL that was estimated.
-    """
-    kstart = int(len(chain)/2.)
-    acl = autocorrelation.calculate_acl(chain[kstart:])
-    is_burned_in = nacls * acl < kstart
-    if is_burned_in:
-        burn_in_idx = kstart
-    else:
-        burn_in_idx = NOT_BURNED_IN_ITER
-    return burn_in_idx, is_burned_in, acl
-
-
 def max_posterior(lnps_per_walker, dim):
     """Burn in based on samples being within dim/2 of maximum posterior.
 
@@ -126,7 +87,7 @@ def max_posterior(lnps_per_walker, dim):
     lnps_per_walker : 2D array
         Array of values that are proportional to the log posterior values. Must
         have shape ``nwalkers x niterations``.
-    dim : float
+    dim : int
         The dimension of the parameter space.
 
     Returns
@@ -166,7 +127,7 @@ def posterior_step(logposts, dim):
     ----------
     logposts : array
         1D array of values that are proportional to the log posterior values.
-    dim : float
+    dim : int
         The dimension of the parameter space.
 
     Returns
@@ -199,6 +160,10 @@ def posterior_step(logposts, dim):
 class MCMCBurnInTests(object):
     """Provides methods for estimating burn-in of an ensemble MCMC."""
 
+    available_tests = ('halfchain', 'min_iterations', 'max_posterior',
+                       'posterior_step', 'nacl', 'ks_test',
+                       )
+
     def __init__(self, sampler, burn_in_test, **kwargs):
         self.sampler = sampler
         # determine the burn-in tests that are going to be done
@@ -207,21 +172,62 @@ class MCMCBurnInTests(object):
         self.burn_in_data = {t: {} for t in self.do_tests}
         self.is_burned_in = False
         self.burn_in_iteration = None
-        if 'nacl' in burn_in_tests:
-            # get the number of acls to use
-            self._nacls = int(kwargs.pop('nacls', 5))
-        if 'ks_test' in burn_in_tests:
-            self._ksthreshold = float(kwargs.pop('ks_threshold', 0.9))
+        # Arguments specific to each test...
+        # for nacl:
+        self._nacls = int(kwargs.pop('nacls', 5))
+        # for kstest:
+        self._ksthreshold = float(kwargs.pop('ks_threshold', 0.9))
+        # for max_posterior and posterior_step
+        self._ndim = int(kwargs.pop('ndim', len(sampler.variable_args)))
+        # for min iterations
+        self._min_iterations = int(kwargs.pop('min_iterations', 0))
 
-    def max_posterior(self, filename):
-        """Applies max posterior test to self."""
-        with sampler.io(filename, 'r') as fp:
+    def _getlogposts(self, filename):
+        """Convenience function for retrieving log posteriors.
+        
+        Parameters
+        ----------
+        filename : str
+            The file to read.
+
+        Returns
+        -------
+        array
+            The log posterior values. They are not flattened, so have dimension
+            nwalkers x niterations.
+        """
+        with self.sampler.io(filename, 'r') as fp:
             samples = fp.read_raw_samples(
                 ['loglikelihood', 'logprior'], thin_start=0, thin_interval=1,
                 flatten=False)
             logposts = samples['loglikelihood'] + samples['logprior']
+        return logposts
+
+    def halfchain(self, filename):
+        """Just uses half the chain as the burn-in iteration.
+        """
+        with self.sampler.io(filename, 'r') as fp:
+            niters = fp.niterations
+        data = self.burn_in_data['halfchain']
+        # this test cannot determine when something will burn in
+        # only when it was not burned in in the past
+        data['is_burned_in'] = True
+        data['burn_in_iteration'] = niters/2
+
+    def min_iterations(self, filename):
+        """Just checks that the sampler has been run for the minimum number
+        of iterations.
+        """
+        with self.sampler.io(filename, 'r') as fp:
+            niters = fp.niterations
+        data = self.burn_in_data['min_iterations']
+        data['is_burned_in'] = niters >= self._min_iterations
+        data['burn_in_iteration'] = self._min_iterations
+    def max_posterior(self, filename):
+        """Applies max posterior test to self."""
+        logposts = self._getlogposts(filename)
         burn_in_idx, is_burned_in = burn_in.max_posterior(
-            logposts, len(self.variable_params))
+            logposts, self._ndim)
         data = self.burn_in_data['max_posterior']
         # required things to store
         data['is_burned_in'] = is_burned_in.all()
@@ -230,9 +236,32 @@ class MCMCBurnInTests(object):
         data['iteration_per_walker'] = burn_in_idx
         data['status_per_walker'] = is_burned_in
 
+    def posterior_step(self, filename):
+        """Applies the posterior-step test."""
+        logposts = self._getlogposts(filename)
+        burn_in_idx = numpy.array([posterior_step(logps, self._ndim)
+                                   for logps in logposts])
+        data = self.burn_in_data['posterior_step']
+        # this test cannot determine when something will burn in
+        # only when it was not burned in in the past
+        data['is_burned_in'] = True
+        data['burn_in_iteration'] = burn_in_idx.max()
+        # additional info
+        data['iteration_per_walker'] = burn_in_idx
+
     def nacl(self, filename):
-        """Applies the nacl burn-in test"""
-        with sampler.io(filename, 'r') as fp:
+        """Burn in based on ACL.
+
+        This applies the following test to determine burn in:
+
+        1. The first half of the chain is ignored.
+
+        2. An ACL is calculated from the second half.
+
+        3. If ``nacls`` times the ACL is < the number of iterations / 2,
+           the chain is considered to be burned in at the half-way point.
+        """
+        with self.sampler.io(filename, 'r') as fp:
             niters = fp.niterations
         kstart = int(niters / 2.)
         acls = sampler.compute_acls(filename, start_index=kstart)
@@ -252,7 +281,7 @@ class MCMCBurnInTests(object):
 
     def ks_test(self, filename):
         """Applies ks burn-in test."""
-        with sampler.io(filename, 'r') as fp:
+        with self.sampler.io(filename, 'r') as fp:
             niters = fp.niterations
             # get the samples from the mid point
             samples1 = fp.read_raw_samples(
@@ -319,4 +348,10 @@ class MCMCBurnInTests(object):
         if cp.has_option_tag(section, 'ks-threshold', tag):
             kwargs['ks_threshold'] = float(
                 cp.get_opt_tag(section, 'ks-threshold', tag))
+        if cp.has_option_tag(section, 'ndim', tag):
+            kwargs['ndim'] = int(
+                cp.get_opt_tag(section, 'ndim', tag))
+        if cp.has_option_tag(section, 'min-iterations', tag):
+            kwargs['min_iterations'] = int(
+                cp.get_opt_tag(section, 'min-iterations', tag))
         return cls(sampler, burn_in_test, **kwargs)
