@@ -57,18 +57,6 @@ parser.add_argument("--nprocesses", type=int, default=1,
                          "a single core will be used.")
 parser.add_argument("--use-mpi", action='store_true', default=False,
                     help="Use MPI to parallelize the sampler")
-# run duration options
-parser.add_argument("--nsamples", type=int, required=True,
-                    help="The number of samples the sampler should get. "
-                         "The sampler will run until it has acquired at least "
-                         "this many samples. Depending on checkpoint settings "
-                         "it may go over.")
-parser.add_argument("--require-indep-samples", action="store_true",
-                    default=False,
-                    help="Require that the number of samples set by nsamples "
-                         "be independent. If this is not set, MCMC samplers "
-                         "will just run until they have the desried number of "
-                         "raw samples (with no thinning).")
 parser.add_argument("--samples-file", default=None,
                     help="Use an iteration from an InferenceFile as the "
                          "initial proposal distribution. The same "
@@ -200,9 +188,6 @@ with ctx:
 
     sampler.set_initial_conditions(initial_distribution=init_prior,
         samples_file=samples_file)
-
-    # Set the target number of samples for the sampler
-    sampler.set_target(opts.nsamples, opts.require_indep_samples)
 
     # Run the sampler
     sampler.run()

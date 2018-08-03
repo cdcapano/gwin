@@ -101,10 +101,6 @@ class EmceeEnsembleSampler(MCMCAutocorrSupport, BaseMCMC, BaseSampler):
     def io(self):
         return self._io
 
-    def _write_more_metadata(self, fp):
-        """Adds nwalkers to the metadata."""
-        fp.attrs['nwalkers'] = self.nwalkers
-
     @property
     def base_shape(self):
         return (self.nwalkers,)
@@ -131,13 +127,14 @@ class EmceeEnsembleSampler(MCMCAutocorrSupport, BaseMCMC, BaseSampler):
         # raw_stats has shape niterations x nwalkers x nstats; transpose
         # so that it has shape nwalkers x niterations x nstats
         raw_stats = raw_stats.transpose((1, 0, 2))
-        return raw_samples_to_dict(self, raw_stats)
+        return raw_stats_to_dict(self, raw_stats)
 
     def clear_samples(self):
         """Clears the samples and stats from memory.
         """
         # store the iteration that the clear is occuring on
         self._lastclear = self.niterations
+        self._itercounter = 0
         # now clear the chain
         self._sampler.reset()
         self._sampler.clear_blobs()
@@ -216,6 +213,16 @@ class EmceeEnsembleSampler(MCMCAutocorrSupport, BaseMCMC, BaseSampler):
         obj = cls(model, nwalkers, checkpoint_interval=checkpoint_interval,
                   logpost_function=lnpost, nprocesses=nprocesses,
                   use_mpi=use_mpi)
+        # get target
+        if cp.has_option(section, "niterations"):
+            niterations = int(cp.get(section, "niterations"))
+        else:
+            niterations = None
+        if cp.has_option(section, "effective-nsamples"):
+            nsamples = int(cp.get(section, "effective-nsamples"))
+        else:
+            nsamples = None
+        obj.set_target(niterations=niterations, eff_nsamples=nsamples)
         # add burn-in if it's specified
         try:
             bit = obj.burn_in_class.from_config(cp, obj)

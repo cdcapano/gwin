@@ -156,6 +156,26 @@ class MCMCIO(object):
         resume_pts.append(niterations)
         self.attrs["resume_points"] = resume_pts
 
+    def write_niterations(self, niterations):
+        """Writes the given number of iterations to the sampler group."""
+        self[self.sampler_group].attrs['niterations'] = niterations
+
+    @property
+    def niterations(self):
+        """Returns the number of iterations the sampler was run for."""
+        return self[self.sampler_group].attrs['niterations']
+
+    def write_sampler_metadata(self, sampler):
+        """Writes the sampler's metadata."""
+        self.attrs['sampler'] = sampler.name
+        if self.sampler_group not in self.keys():
+            # create the sampler group
+            self.create_group(self.sampler_group)
+        self[self.sampler_group].attrs['nwalkers'] = sampler.nwalkers
+        # write the model's metadata
+        sampler.model.write_metadata(self)
+        
+
     def write_acls(self, acls):
         """Writes the given autocorrelation lengths.
 
@@ -186,7 +206,7 @@ class MCMCIO(object):
                 self[group.format(param)] = acls[param]
         # write the maximum over all params
         acl = numpy.array(acls.values()).max()
-        self.attrs['acl'] = acl
+        self[self.sampler_group].attrs['acl'] = acl
         # set the default thin interval to be the acl
         self.attrs['thin_interval'] = acl
 

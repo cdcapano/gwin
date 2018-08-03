@@ -141,19 +141,6 @@ class BaseSampler(object):
         """Do any finalization to the samples file before exiting."""
         pass
 
-    def write_metadata(self, fp):
-        """Writes metadata about the sampler to the given filehandler."""
-        fp.attrs['sampler'] = self.name
-        # write the model's metadata
-        self.model.write_metadata(fp)
-        self._write_more_metadata(fp)
-
-    def _write_more_metadata(self, fp):
-        """Optional method that can be implemented if a sampler wants to write
-        more metadata than just its name and the model's metadata.
-        """
-        pass
-
     def setup_output(self, output_file, force=False, injection_file=None):
         """Sets up the sampler's checkpoint and output files.
 
@@ -193,34 +180,15 @@ class BaseSampler(object):
             self.new_checkpoint = True
             # copy to backup
             shutil.copy(checkpoint_file, backup_file)
-        # write the command line
+        # write the command line, startup
         for fn in [checkpoint_file, backup_file]:
             with self.io(fn, "a") as fp:
                 fp.write_command_line()
+                fp.write_resume_point()
         # store
         self.checkpoint_file = checkpoint_file
         self.backup_file = backup_file
         self.checkpoint_valid = checkpoint_valid
-
-    def set_target(self, nsamples, require_independent=False):
-        """Sets the number of samples the sampler should try to acquire.
-
-        If the ``must_be_independent`` flag is set, then the number of samples
-        must be independent. This means, for example, that MCMC chains are
-        thinned by their ACL before counting samples. Otherwise, the sampler
-        will just run until it has the requested number of samples, regardless
-        of thinning.
-
-        Parameters
-        ----------
-        nsamples : int
-            The number of samples to acquire.
-        must_be_independent : bool, optional
-            Add the requirement that the target number of samples be
-            independent. Default is False.
-        """
-        self.target_nsamples = nsamples
-        self.require_indep_samples = require_independent
 
 
 #
@@ -261,7 +229,7 @@ def create_new_output_file(sampler, filename, force=False, injection_file=None,
     logging.info("Creating file {}".format(filename))
     with sampler.io(filename, "w") as fp:
         # save the sampler's metadata
-        sampler.write_metadata(fp)
+        fp.write_sampler_metadata(sampler)
         # save injection parameters
         if injection_file is not None:
             logging.info("Writing injection file to output")

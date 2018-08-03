@@ -105,7 +105,7 @@ def raw_stats_to_dict(sampler, raw_stats):
         # therefore immediately convert this to a ND array.
         raw_stats = numpy.array(raw_stats)
     return {stat: raw_stats[..., ii]
-            for (ii, stat) in enumerate(self.model.default_stats)}
+            for (ii, stat) in enumerate(sampler.model.default_stats)}
 
 #
 # =============================================================================
@@ -134,13 +134,15 @@ class BaseMCMC(object):
     """
     __metaclass__ = ABCMeta
 
-    _lastclear = None
-    _itercounter = None
+    _lastclear = None # the iteration when samples were cleared from memory
+    _itercounter = None # the number of iterations since the last clear
     _pos = None
     _p0 = None
     _nwalkers = None
     _burn_in = None
     _checkpoint_interval = None
+    _target_niterations = None
+    _target_eff_nsamples = None
 
     @abstractproperty
     def base_shape(self):
@@ -175,6 +177,32 @@ class BaseMCMC(object):
     def checkpoint_interval(self):
         """The number of iterations to do between checkpoints."""
         return self._checkpoint_interval
+
+    @property
+    def target_niterations(self):
+        """The number of iterations the sampler should run for."""
+        return self._target_niterations
+
+    @property
+    def target_eff_nsamples(self):
+        """The target number of effective samples the sampler should get."""
+        return self._target_eff_nsamples
+
+    def set_target(self, niterations=None, eff_nsamples=None):
+        """Sets the target niterations/nsamples for the sampler.
+
+        One or the other must be provided, not both.
+        """
+        if niterations is None and eff_nsamples is None:
+            raise ValueError("Must provide a target niterations or "
+                             "eff_nsamples")
+        if niterations is not None and eff_nsamples is not None:
+            raise ValueError("Must provide a target niterations or "
+                             "eff_nsamples, not both")
+        self._target_niterations = int(niterations) \
+            if niterations is not None else None
+        self._target_eff_nsamples = int(eff_nsamples) \
+            if eff_nsamples is not None else None
 
     @abstractmethod
     def clear_samples(self):
@@ -268,63 +296,61 @@ class BaseMCMC(object):
 
     def run(self):
         """Runs the sampler."""
-
-        if self.require_indep_samples and self.checkpoint_interval is None:
+        if self.target_eff_nsamples and self.checkpoint_interval is None:
             raise ValueError("A checkpoint interval must be set if "
-                             "independent samples are required")
+                             "targetting an effective number of samples")
         # get the starting number of samples:
         # "nsamples" keeps track of the number of samples we've obtained (if
-        # require_indep_samples is used, this is the number of independent
+        # target_eff_nsamples is not None, this is the effective number of
         # samples; otherwise, this is the total number of samples).
-        # "startiter" is the number of iterations that the file already
+        # _lastclear is the number of iterations that the file already
         # contains (either due to sampler burn-in, or a previous checkpoint)
-        try:
-            with self.io(self.checkpoint_file, "r") as fp:
-                startiter = fp.niterations
-        except KeyError:
-            startiter = 0
-        if self.require_indep_samples:
-            with self.io(self.checkpoint_file, "r") as fp:
-                nsamples = fp.n_indep_samples
+        if self.new_checkpoint:
+            self._lastclear = 0
         else:
+            with self.io(self.checkpoint_file, "r") as fp:
+                self._lastclear = fp.niterations
+        if self.target_eff_nsamples is not None:
+            target_nsamples = self.target_eff_nsamples
+            with self.io(self.checkpoint_file, "r") as fp:
+                nsamples = fp.effective_nsamples
+        elif self.target_niterations is not None:
             # the number of samples is the number of iterations times the
             # number of walkers
-            nsamples = startiter * self.nwalkers
-        # to ensure iterations are counted properly, the sampler's lastclear
-        # should be the same as start
-        self._lastclear = startiter
-        # keep track of the number of iterations we've done
-        self._itercounter = startiter
+            target_nsamples = self.nwalkers * self.target_niterations
+            nsamples = self._lastclear * self.nwalkers
+        else:
+            raise ValueError("must set either target_eff_nsamples or "
+                             "target_niterations; see set_target")
+        self._itercounter = 0
         # figure out the interval to use
         iterinterval = self.checkpoint_interval
         if iterinterval is None:
-            iterinterval = int(numpy.ceil(
-                float(self.target_nsamples) / self.nwalkers))
+            iterinterval = self.target_niterations
         # run sampler until we have the desired number of samples
-        while nsamples < self.target_nsamples:
-            enditer = startiter + iterinterval
+        while nsamples < target_nsamples:
             # adjust the interval if we would go past the number of iterations
-            endnsamp = enditer * self.nwalkers
-            if endnsamp > self.target_nsamples \
-                    and not self.require_indep_samples:
-                iterinterval = int(numpy.ceil(
-                    (endnsamp - self.target_nsamples) / self.nwalkers))
+            if self.target_niterations is not None and (
+                    self.niterations + iterinterval > self.target_niterations):
+                iterinterval = self.target_niterations - self.niterations
             # run sampler and set initial values to None so that sampler
             # picks up from where it left off next call
             logging.info("Running sampler for {} to {} iterations".format(
-                startiter, enditer))
+                self.niterations, self.niterations + iterinterval))
             # run the underlying sampler for the desired interval
             self.run_mcmc(iterinterval)
+            # update the itercounter
+            #startiter = startiter + iterinterval
+            self._itercounter = self._itercounter + iterinterval
             # dump the current results
             self.checkpoint()
             # update nsamples for next loop
-            if self.require_indep_samples:
-                nsamples = self.n_indep_samples
-                logging.info("Have {} independent samples post burn in".format(
+            if self.target_eff_nsamples is not None:
+                nsamples = self.effective_nsamples
+                logging.info("Have {} effective samples post burn in".format(
                     nsamples))
             else:
                 nsamples += iterinterval * self.nwalkers
-            self._itercounter = startiter = enditer
 
     @property
     def burn_in(self):
@@ -336,8 +362,8 @@ class BaseMCMC(object):
         self._burn_in = burn_in
 
     @property
-    def n_indep_samples(self):
-        """The number of independent samples post burn-in that the sampler has
+    def effective_nsamples(self):
+        """The effective number of samples post burn-in that the sampler has
         acquired so far."""
         if self.acls is None:
             acl = numpy.inf
@@ -384,8 +410,8 @@ class BaseMCMC(object):
                 if self.acls is not None:
                     fp.write_acls(self.acls)
                 # write the current number of iterations
-                fp.attrs['niterations'] = self.niterations
-                fp.attrs['n_indep_samples'] = self.n_indep_samples
+                fp.write_niterations(self.niterations)
+                fp.write_effective_nsamples(self.effective_nsamples)
         # check validity
         logging.info("Validating checkpoint and backup files")
         checkpoint_valid = validate_checkpoint_files(

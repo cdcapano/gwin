@@ -107,6 +107,14 @@ class BaseInferenceFile(h5py.File):
         """
         pass
 
+    @abstractmethod
+    def write_sampler_metadata(self, sampler):
+        """This should write the given sampler's metadata to the file.
+
+        This should also include the model's metadata.
+        """
+        pass
+
     def parse_parameters(self, parameters, array_class=None):
         """Parses a parameters arg to figure out what fields need to be loaded.
 
@@ -212,13 +220,17 @@ class BaseInferenceFile(h5py.File):
         return {arg: self.attrs[arg] for arg in self.attrs["static_params"]}
 
     @property
-    def n_indep_samples(self):
-        """Returns the number of independent samples stored in the file.
+    def effective_nsamples(self):
+        """Returns the effective number of samples stored in the file.
         """
         try:
-            return self.attrs['n_indep_samples']
+            return self.attrs['effective_nsamples']
         except KeyError:
             return 0
+
+    def write_effective_nsamples(self, effective_nsamples):
+        """Writes the effective number of samples stored in the file."""
+        self.attrs['effective_nsamples'] = effective_nsamples
 
     @property
     def thin_start(self):
@@ -443,6 +455,16 @@ class BaseInferenceFile(h5py.File):
         except KeyError:
             previous = []
         self.attrs["cmd"] = cmd + previous
+
+    @abstractmethod
+    def write_resume_point(self):
+        """Should write the point that a sampler starts up.
+        
+        How the resume point is indexed is up to the sampler. For example,
+        MCMC samplers use the number of iterations that are stored in the
+        checkpoint file.
+        """
+        pass
 
     def get_slice(self, thin_start=None, thin_interval=None, thin_end=None):
         """Formats a slice using the given arguments that can be used to
