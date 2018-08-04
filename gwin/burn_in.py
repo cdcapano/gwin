@@ -276,7 +276,7 @@ class MCMCBurnInTests(object):
         """
         niters = self._getniters(filename)
         kstart = int(niters / 2.)
-        acls = sampler.compute_acls(filename, start_index=kstart)
+        acls = self.sampler.compute_acl(filename, start_index=kstart)
         is_burned_in = {param: (self._nacls * acl) < kstart
                         for (param, acl) in acls.items()}
         data = self.burn_in_data['nacl']
@@ -289,7 +289,7 @@ class MCMCBurnInTests(object):
         # additional information
         data['status_per_parameter'] = is_burned_in
         # since we calculated it, save the acls to the sampler
-        sampler.acls = acls
+        self.sampler.acls = acls
 
     def ks_test(self, filename):
         """Applies ks burn-in test."""
