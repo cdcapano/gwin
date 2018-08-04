@@ -459,7 +459,7 @@ class BaseInferenceFile(h5py.File):
     @abstractmethod
     def write_resume_point(self):
         """Should write the point that a sampler starts up.
-        
+
         How the resume point is indexed is up to the sampler. For example,
         MCMC samplers use the number of iterations that are stored in the
         checkpoint file.

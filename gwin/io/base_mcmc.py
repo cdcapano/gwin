@@ -31,6 +31,7 @@ from abc import (ABCMeta, abstractmethod)
 import numpy
 from .base_hdf import write_kwargs_to_hdf_attrs
 
+
 class MCMCIO(object):
     """Abstract base class that provides some IO functions for ensemble MCMCs.
     """
@@ -176,7 +177,6 @@ class MCMCIO(object):
         self[self.sampler_group].attrs['nwalkers'] = sampler.nwalkers
         # write the model's metadata
         sampler.model.write_metadata(self)
-        
 
     def write_acls(self, acls):
         """Writes the given autocorrelation lengths.

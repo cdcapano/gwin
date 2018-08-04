@@ -134,8 +134,8 @@ class BaseMCMC(object):
     """
     __metaclass__ = ABCMeta
 
-    _lastclear = None # the iteration when samples were cleared from memory
-    _itercounter = None # the number of iterations since the last clear
+    _lastclear = None  # the iteration when samples were cleared from memory
+    _itercounter = None  # the number of iterations since the last clear
     _pos = None
     _p0 = None
     _nwalkers = None
@@ -340,7 +340,6 @@ class BaseMCMC(object):
             # run the underlying sampler for the desired interval
             self.run_mcmc(iterinterval)
             # update the itercounter
-            #startiter = startiter + iterinterval
             self._itercounter = self._itercounter + iterinterval
             # dump the current results
             self.checkpoint()

@@ -31,6 +31,7 @@ filetypes = {
     EmceeFile.name: EmceeFile,
 }
 
+
 def loadfile(path, mode=None, filetype=None, **kwargs):
     """Loads the given file using the appropriate InferenceFile class.
 

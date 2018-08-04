@@ -196,7 +196,7 @@ class MCMCBurnInTests(object):
 
     def _getlogposts(self, filename):
         """Convenience function for retrieving log posteriors.
-        
+
         Parameters
         ----------
         filename : str

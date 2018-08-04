@@ -44,6 +44,7 @@ from ..io import validate_checkpoint_files
 # =============================================================================
 #
 
+
 class BaseSampler(object):
     """Base container class for inference samplers.
 
@@ -171,7 +172,7 @@ class BaseSampler(object):
                                                      backup_file)
         # Create a new file if the checkpoint doesn't exist, or if it is
         # corrupted
-        self.new_checkpoint = False # keeps track if this is a new file or not
+        self.new_checkpoint = False  # keeps track if this is a new file or not
         if not checkpoint_valid:
             logging.info("Checkpoint not found or not valid")
             create_new_output_file(self, checkpoint_file, force=force,
