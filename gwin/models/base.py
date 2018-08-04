@@ -746,7 +746,7 @@ class BaseModel(object):
 
     def write_metadata(self, fp):
         """Writes metadata to the given file handler.
-        
+
         Parameters
         ----------
         fp : gwin.io.BaseInferenceFile instance
