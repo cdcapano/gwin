@@ -406,6 +406,9 @@ class BaseMCMC(object):
             self.burn_in.evaluate(self.checkpoint_file)
             burn_in_iter = self.burn_in.burn_in_iteration
             logging.info("Is burned in: {}".format(self.burn_in.is_burned_in))
+            if self.burn_in.is_burned_in:
+                logging.info("Burn-in iteration: {}".format(
+                    self.burn_in.burn_in_iteration))
         else:
             burn_in_iter = 0
         # Compute acls; the burn_in test may have calculated an acl and saved
@@ -414,6 +417,7 @@ class BaseMCMC(object):
             logging.info("Computing acls")
             self.acls = self.compute_acl(self.checkpoint_file,
                                          start_index=burn_in_iter)
+        logging.info("ACL: {}".format(numpy.array(self.acls.values()).max()))
         # write
         for fn in [self.checkpoint_file, self.backup_file]:
             with self.io(fn, "a") as fp:
