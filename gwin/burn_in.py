@@ -74,7 +74,7 @@ def ks_test(samples1, samples2, threshold=0.9):
     for param in samples1:
         s1 = samples1[param]
         s2 = samples2[param]
-        _, p_value = ks_2samp(samples_last_iter, samples_chain_midpt)
+        _, p_value = ks_2samp(s1, s2)
         is_the_same[param] = p_value > threshold
     return is_the_same
 
@@ -231,8 +231,11 @@ class MCMCBurnInTests(object):
         """
         niters = self._getniters(filename)
         data = self.burn_in_data['min_iterations']
-        data['is_burned_in'] = niters >= self._min_iterations
-        data['burn_in_iteration'] = self._min_iterations
+        data['is_burned_in'] = self._min_iterations < niters
+        if data['is_burned_in']:
+            data['burn_in_iteration'] = self._min_iterations
+        else:
+            data['burn_in_iteration'] = NOT_BURNED_IN_ITER
 
     def max_posterior(self, filename):
         """Applies max posterior test to self."""
@@ -304,7 +307,7 @@ class MCMCBurnInTests(object):
         # do the test
         # is_the_same is a dictionary of params --> bool indicating whether or
         # not the 1D marginal is the same at the half way point
-        is_the_same = ks_test(samples1, samples2, threshold=self.ks_threshold)
+        is_the_same = ks_test(samples1, samples2, threshold=self._ksthreshold)
         data = self.burn_in_data['ks_test']
         # required things to store
         data['is_burned_in'] = all(is_the_same.values())
