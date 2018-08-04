@@ -370,14 +370,14 @@ class BaseMCMC(object):
         except (AttributeError, TypeError):
             acl = numpy.inf
         if self.burn_in is None:
-            niters = self.niterations
-        elif not self.burn_in.is_burned_in:
-            nperwalker = 0
-        else:
+            nperwalker = max(int(self.niterations // acl), 1)
+        elif self.burn_in.is_burned_in:
             nperwalker = int(
                 (self.niterations - self.burn_in.burn_in_iteration) // acl)
             # after burn in, we always have atleast 1 sample per walker
             nperwalker = max(nperwalker, 1)
+        else:
+            nperwalker = 0
         return self.nwalkers * nperwalker
 
     @abstractmethod
