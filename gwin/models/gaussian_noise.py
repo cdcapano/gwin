@@ -441,12 +441,22 @@ class GaussianNoise(BaseDataModel):
         """Adds writing the psds and lognl, since it's a constant.
 
         The lognl is written to the sample group's ``attrs``.
+
+        Parameters
+        ----------
+        fp : gwin.io.BaseInferenceFile instance
+            The inference file to write to.
         """
-        super(GaussianNoise, self).write_data(fp)
-        self.attrs['f_lower'] = self._f_lower
+        super(GaussianNoise, self).write_metadata(fp)
+        fp.attrs['f_lower'] = self._f_lower
         if self._psds is not None:
-            fp.write_psd(self, self._psds)
-        attrs = fp[fp.samples_group].attrs
+            fp.write_psd(self._psds)
+        try:
+            attrs = fp[fp.samples_group].attrs
+        except KeyError:
+            # group doesn't exist, create it
+            fp.create_group(fp.samples_group)
+            attrs = fp[fp.samples_group].attrs
         attrs['lognl'] = self.lognl
         for det in self.detectors:
             attrs['{}_lognl'.format(det)] = self.det_lognl(det)

@@ -745,7 +745,13 @@ class BaseModel(object):
         return cls(**args)
 
     def write_metadata(self, fp):
-        """Writes metadata to the given file handler."""
+        """Writes metadata to the given file handler.
+        
+        Parameters
+        ----------
+        fp : gwin.io.BaseInferenceFile instance
+            The inference file to write to.
+        """
         fp.attrs['model'] = self.name
         fp.attrs['variable_params'] = list(self.variable_params)
         fp.attrs['sampling_params'] = list(self.sampling_params)

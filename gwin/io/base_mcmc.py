@@ -103,7 +103,8 @@ class MCMCIO(object):
                 istop = istart + niterations
                 self.create_dataset(dataset_name, (nwalkers, istop),
                                     maxshape=(nwalkers, max_iterations),
-                                    dtype=float, fletcher32=True)
+                                    dtype=samples[param].dtype,
+                                    fletcher32=True)
             self[dataset_name][:, istart:istop] = samples[param]
 
     def read_raw_samples(self, fields,
@@ -122,6 +123,8 @@ class MCMCIO(object):
         dict
             A dictionary of field name -> numpy array pairs.
         """
+        if isinstance(fields, (str, unicode)):
+            fields = [fields]
         # walkers to load
         if walkers is not None:
             widx = numpy.zeros(fp.nwalkers, dtype=bool)

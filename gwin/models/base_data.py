@@ -238,6 +238,12 @@ class BaseDataModel(BaseModel):
         return cls(**args)
 
     def write_metadata(self, fp):
-        """Adds data to the metadata that's written."""
+        """Adds data to the metadata that's written.
+
+        Parameters
+        ----------
+        fp : gwin.io.BaseInferenceFile instance
+            The inference file to write to.
+        """
         super(BaseDataModel, self).write_metadata(fp)
         fp.write_stilde(self.data)

@@ -415,6 +415,7 @@ class BaseInferenceFile(h5py.File):
         if group is None:
             group = subgroup
         else:
+            print group, subgroup
             group = '/'.join([group, subgroup])
         for ifo in psds:
             self[group.format(ifo=ifo)] = psds[ifo]
