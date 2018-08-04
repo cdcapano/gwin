@@ -24,10 +24,12 @@
 """Provides I/O that is specific to MCMC samplers.
 """
 
+from __future__ import absolute_import
+
 from abc import (ABCMeta, abstractmethod)
 
 import numpy
-
+from .base_hdf import write_kwargs_to_hdf_attrs
 
 class MCMCIO(object):
     """Abstract base class that provides some IO functions for ensemble MCMCs.
@@ -207,8 +209,9 @@ class MCMCIO(object):
         # write the maximum over all params
         acl = numpy.array(acls.values()).max()
         self[self.sampler_group].attrs['acl'] = acl
-        # set the default thin interval to be the acl
-        self.attrs['thin_interval'] = acl
+        # set the default thin interval to be the acl (if it is finite)
+        if numpy.isfinite(acl):
+            self.attrs['thin_interval'] = acl
 
     def read_acls(self):
         """Reads the acls of all the parameters.

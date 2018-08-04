@@ -365,15 +365,20 @@ class BaseMCMC(object):
     def effective_nsamples(self):
         """The effective number of samples post burn-in that the sampler has
         acquired so far."""
-        if self.acls is None:
-            acl = numpy.inf
-        else:
+        try:
             acl = numpy.array(self.acls.values()).max()
+        except (AttributeError, TypeError):
+            acl = numpy.inf
         if self.burn_in is None:
             niters = self.niterations
+        elif not self.burn_in.is_burned_in:
+            nperwalker = 0
         else:
-            niters = self.niterations - self.burn_in.burn_in_iteration
-        return self.nwalkers * int(niters // acl)
+            nperwalker = int(
+                (self.niterations - self.burn_in.burn_in_iteration) // acl)
+            # after burn in, we always have atleast 1 sample per walker
+            nperwalker = max(nperwalker, 1)
+        return self.nwalkers * nperwalker
 
     @abstractmethod
     def run_mcmc(self, niterations):
@@ -388,20 +393,27 @@ class BaseMCMC(object):
     def checkpoint(self):
         """Dumps current samples to the checkpoint file."""
         # write new samples
-        logging.info("Writing samples to file")
-        self.write_results(self.checkpoint_file)
-        logging.info("Writing to backup file")
-        self.write_results(self.backup_file)
+        logging.info("Writing samples to files")
+        for fn in [self.checkpoint_file, self.backup_file]:
+            self.write_results(fn)
+            with self.io(fn, "a") as fp:
+                # write the current number of iterations
+                fp.write_niterations(self.niterations)
         # check for burn in, compute the acls
         self.acls = None
         if self.burn_in is not None:
             logging.info("Updating burn in")
             self.burn_in.evaluate(self.checkpoint_file)
+            burn_in_iter = self.burn_in.burn_in_iteration
+            logging.info("Is burned in: {}".format(self.burn_in.is_burned_in))
+        else:
+            burn_in_iter = 0
         # Compute acls; the burn_in test may have calculated an acl and saved
         # it, in which case we don't need to do it again.
         if self.acls is None:
             logging.info("Computing acls")
-            self.acls = self.compute_acl(self.checkpoint_file)
+            self.acls = self.compute_acl(self.checkpoint_file,
+                                         start_index=burn_in_iter)
         # write
         for fn in [self.checkpoint_file, self.backup_file]:
             with self.io(fn, "a") as fp:
@@ -409,8 +421,7 @@ class BaseMCMC(object):
                     fp.write_burn_in(self.burn_in)
                 if self.acls is not None:
                     fp.write_acls(self.acls)
-                # write the current number of iterations
-                fp.write_niterations(self.niterations)
+                # write effective number of samples
                 fp.write_effective_nsamples(self.effective_nsamples)
         # check validity
         logging.info("Validating checkpoint and backup files")
@@ -537,8 +548,14 @@ class MCMCAutocorrSupport(object):
                     param, thin_start=start_index, thin_interval=1,
                     thin_end=end_index, flatten=False)[param]
                 samples = samples.mean(axis=0)
-                acl = autocorrelation.calculate_acl(samples)
-                if numpy.isinf(acl):
-                    acl = samples.size
+                # if < 10 samples, just set to inf
+                # Note: this should be done inside of pycbc's autocorrelation
+                # function
+                if samples.size < 10:
+                    acl = numpy.inf
+                else:
+                    acl = autocorrelation.calculate_acl(samples)
+                if acl <= 0:
+                    acl = numpy.inf
                 acls[param] = acl
         return acls

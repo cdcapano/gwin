@@ -112,8 +112,8 @@ def max_posterior(lnps_per_walker, dim):
     for ii in range(nwalkers):
         chain = lnps_per_walker[ii, :]
         passedidx = numpy.where(chain >= criteria)[0]
-        is_burned_in[ii] = is_burned_in = passedidx.size > 0
-        if is_burned_in:
+        is_burned_in[ii] = passedidx.size > 0
+        if is_burned_in[ii]:
             burn_in_idx[ii] = passedidx[0]
         else:
             burn_in_idx[ii] = NOT_BURNED_IN_ITER
@@ -171,16 +171,28 @@ class MCMCBurnInTests(object):
         self.burn_in_test = burn_in_test
         self.burn_in_data = {t: {} for t in self.do_tests}
         self.is_burned_in = False
-        self.burn_in_iteration = None
+        self.burn_in_iteration = NOT_BURNED_IN_ITER
         # Arguments specific to each test...
         # for nacl:
         self._nacls = int(kwargs.pop('nacls', 5))
         # for kstest:
         self._ksthreshold = float(kwargs.pop('ks_threshold', 0.9))
         # for max_posterior and posterior_step
-        self._ndim = int(kwargs.pop('ndim', len(sampler.variable_args)))
+        self._ndim = int(kwargs.pop('ndim', len(sampler.variable_params)))
         # for min iterations
         self._min_iterations = int(kwargs.pop('min_iterations', 0))
+
+    def _getniters(self, filename):
+        """Convenience function to get the number of iterations in the file.
+
+        If `niterations` hasn't been written to the file yet, just returns 0.
+        """
+        with self.sampler.io(filename, 'r') as fp:
+            try:
+                niters = fp.niterations
+            except KeyError:
+                niters = 0
+        return niters
 
     def _getlogposts(self, filename):
         """Convenience function for retrieving log posteriors.
@@ -206,8 +218,7 @@ class MCMCBurnInTests(object):
     def halfchain(self, filename):
         """Just uses half the chain as the burn-in iteration.
         """
-        with self.sampler.io(filename, 'r') as fp:
-            niters = fp.niterations
+        niters = self._getniters(filename)
         data = self.burn_in_data['halfchain']
         # this test cannot determine when something will burn in
         # only when it was not burned in in the past
@@ -218,20 +229,22 @@ class MCMCBurnInTests(object):
         """Just checks that the sampler has been run for the minimum number
         of iterations.
         """
-        with self.sampler.io(filename, 'r') as fp:
-            niters = fp.niterations
+        niters = self._getniters(filename)
         data = self.burn_in_data['min_iterations']
         data['is_burned_in'] = niters >= self._min_iterations
         data['burn_in_iteration'] = self._min_iterations
+
     def max_posterior(self, filename):
         """Applies max posterior test to self."""
         logposts = self._getlogposts(filename)
-        burn_in_idx, is_burned_in = burn_in.max_posterior(
-            logposts, self._ndim)
+        burn_in_idx, is_burned_in = max_posterior(logposts, self._ndim)
         data = self.burn_in_data['max_posterior']
         # required things to store
         data['is_burned_in'] = is_burned_in.all()
-        data['burn_in_iteration'] = burn_in_idx.max()
+        if data['is_burned_in']:
+            data['burn_in_iteration'] = burn_in_idx.max()
+        else:
+            data['burn_in_iteration'] = NOT_BURNED_IN_ITER
         # additional info
         data['iteration_per_walker'] = burn_in_idx
         data['status_per_walker'] = is_burned_in
@@ -261,8 +274,7 @@ class MCMCBurnInTests(object):
         3. If ``nacls`` times the ACL is < the number of iterations / 2,
            the chain is considered to be burned in at the half-way point.
         """
-        with self.sampler.io(filename, 'r') as fp:
-            niters = fp.niterations
+        niters = self._getniters(filename)
         kstart = int(niters / 2.)
         acls = sampler.compute_acls(filename, start_index=kstart)
         is_burned_in = {param: (self._nacls * acl) < kstart
@@ -305,7 +317,7 @@ class MCMCBurnInTests(object):
 
     def evaluate(self, filename):
         """Runs all of the burn-in tests."""
-        for tst in self.tests_to_do:
+        for tst in self.do_tests:
             getattr(self, tst)(filename)
         # The iteration to use for burn-in depends on the logic in the burn-in
         # test string. For example, if the test was 'max_posterior | nacl' and
@@ -319,12 +331,13 @@ class MCMCBurnInTests(object):
         # by that point. Then evaluate the burn-in string at that point to see
         # if it passes, and if so, what the iteration is. The first point that
         # the test passes is used as the burn-in iteration.
-        burn_in_iters = numpy.unique([self.data[t]['burn_in_iteration']
+        data = self.burn_in_data
+        burn_in_iters = numpy.unique([data[t]['burn_in_iteration']
                                       for t in self.do_tests])
         burn_in_iters.sort()
         for ii in burn_in_iters:
-            test_results = {t: (self.data[t]['is_burned_in'] &
-                                self.data[t]['burn_in_iteration'] <= ii)
+            test_results = {t: (data[t]['is_burned_in'] &
+                                0 <= data[t]['burn_in_iteration'] <= ii)
                             for t in self.do_tests}
             is_burned_in = eval(self.burn_in_test, {"__builtins__": None},
                                 test_results)
