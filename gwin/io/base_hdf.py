@@ -41,7 +41,7 @@ from pycbc.io import FieldArray
 from pycbc.types import FrequencySeries
 from pycbc.waveform import parameters as wfparams
 
-from ..option_utils import parse_parameters_opt
+from .cli import parse_parameters_opt
 
 class BaseInferenceFile(h5py.File):
     """Base class for all inference hdf files.
@@ -671,27 +671,27 @@ class BaseInferenceFile(h5py.File):
                 other.attrs['thin_end'] = None
         return other
 
+    @classmethod
+    def write_kwargs_to_attrs(cls, attrs, **kwargs):
+        """Writes the given keywords to the given ``attrs``.
 
-def write_kwargs_to_hdf_attrs(attrs, **kwargs):
-    """Writes the given keywords to the given ``attrs``.
+        If any keyword argument points to a dict, the keyword will point to a
+        list of the dict's keys. Each key is then written to the attrs with its
+        corresponding value.
 
-    If any keyword argument points to a dict, the keyword will point to a
-    list of the dict's keys. Each key is then written to the attrs with its
-    corresponding value.
-
-    Parameters
-    ----------
-    attrs : an HDF attrs
-        Can be either the ``attrs`` of the hdf file, or any group in a file.
-    \**kwargs :
-        The keywords to write.
-    """
-    for arg, val in kwargs.items():
-        if val is None:
-            val = str(None)
-        if isinstance(val, dict):
-            attrs[arg] = val.keys()
-            # just call self again with the dict as kwargs
-            write_kwargs_to_hdf_attrs(attrs, **val)
-        else:
-            attrs[arg] = val
+        Parameters
+        ----------
+        attrs : an HDF attrs
+            The ``attrs`` of an hdf file or a group in an hdf file.
+        \**kwargs :
+            The keywords to write.
+        """
+        for arg, val in kwargs.items():
+            if val is None:
+                val = str(None)
+            if isinstance(val, dict):
+                attrs[arg] = val.keys()
+                # just call self again with the dict as kwargs
+                cls.write_kwargs_to_attrs(attrs, **val)
+            else:
+                attrs[arg] = val

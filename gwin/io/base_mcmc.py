@@ -29,7 +29,6 @@ from __future__ import absolute_import
 from abc import (ABCMeta, abstractmethod)
 
 import numpy
-from .base_hdf import write_kwargs_to_hdf_attrs
 
 
 class MCMCIO(object):
@@ -188,7 +187,7 @@ class MCMCIO(object):
             if unknown:
                 logging.warn("File {} does not understand options {}; "
                              "ignoring.".format(self.filename,
-                                                ' '.join(unknown))
+                                                ' '.join(unknown)))
         return self.read_samples(parameters, thin_start=opts.thin_start,
                                  thin_interval=opts.thin_interval,
                                  thin_end=opts.thin_end,
@@ -295,4 +294,4 @@ class MCMCIO(object):
             except KeyError:
                 group.create_group(key)
                 attrs = group[key].attrs
-            write_kwargs_to_hdf_attrs(attrs, **burn_in.burn_in_data[tst])
+            self.write_kwargs_to_attrs(attrs, **burn_in.burn_in_data[tst])
