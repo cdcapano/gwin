@@ -29,7 +29,7 @@ from pycbc.psd import from_cli_multi_ifos as psd_from_cli_multi_ifos
 from pycbc.strain import from_cli_multi_ifos as strain_from_cli_multi_ifos
 from pycbc.strain import (gates_from_cli, psd_gates_from_cli,
                           apply_gates_to_td, apply_gates_to_fd)
-
+from pycbc import waveform
 from gwin import (burn_in, models, sampler)
 from gwin.io.hdf import InferenceFile, check_integrity
 from gwin.io.txt import InferenceTXTFile
@@ -299,227 +299,9 @@ def data_from_cli(opts):
 
 # -----------------------------------------------------------------------------
 #
-#                Utilities for loading and plotting results
+#                Utilities for plotting results
 #
 # -----------------------------------------------------------------------------
-
-def add_inference_results_option_group(parser, include_parameters_group=True):
-    """Adds the options used to call gwin.results_from_cli function
-    to an argument parser. These are options releated to loading the results
-    from a run of pycbc_inference, for purposes of plotting and/or creating
-    tables.
-
-    Parameters
-    ----------
-    parser : object
-        ArgumentParser instance.
-    include_parameters_group : bool
-        If true then include `--parameters-group` option.
-    """
-
-    results_reading_group = parser.add_argument_group(
-        "Arguments for loading inference results")
-
-    # required options
-    results_reading_group.add_argument(
-        "--input-file", type=str, required=True, nargs="+",
-        help="Path to input HDF files.")
-    results_reading_group.add_argument(
-        "--parameters", type=str, nargs="+", metavar="PARAM[:LABEL]",
-        help="Name of parameters to load. If none provided will load all of "
-             "the model params in the input-file. If provided, the "
-             "parameters can be any of the model params or posteriors in "
-             "the input file, derived parameters from them, or any function "
-             "of them. Syntax for functions is python; any math functions in "
-             "the numpy libary may be used. Can optionally also specify a "
-             "label for each parameter. If no label is provided, will try to "
-             "retrieve a label from the input-file. If no label can be found "
-             "in the input-file, will try to get a label from "
-             "pycbc.waveform.parameters. If no label can be found in either "
-             "place, will just use the parameter.")
-
-    # optionals
-    results_reading_group.add_argument(
-        "--thin-start", type=int, default=None,
-        help="Sample number to start collecting samples to plot. If none "
-             "provided, will start at the end of the burn-in.")
-    results_reading_group.add_argument(
-        "--thin-interval", type=int, default=None,
-        help="Interval to use for thinning samples. If none provided, will "
-             "use the auto-correlation length found in the file.")
-    results_reading_group.add_argument(
-        "--thin-end", type=int, default=None,
-        help="Sample number to stop collecting samples to plot. If none "
-             "provided, will stop at the last sample from the sampler.")
-    results_reading_group.add_argument(
-        "--iteration", type=int, default=None,
-        help="Only retrieve the given iteration. To load the last n-th sampe "
-             "use -n, e.g., -1 will load the last iteration. This overrides "
-             "the thin-start/interval/end options.")
-    if include_parameters_group:
-        results_reading_group.add_argument(
-            "--parameters-group", type=str,
-            default=InferenceFile.samples_group,
-            choices=[InferenceFile.samples_group, InferenceFile.stats_group],
-            help="Group in the HDF InferenceFile to look for parameters.")
-
-    return results_reading_group
-
-
-def parse_parameters_opt(parameters):
-    """Parses the --parameters opt in the results_reading_group.
-
-    Parameters
-    ----------
-    parameters : list of str or None
-        The parameters to parse.
-    Returns
-    -------
-    parameters : list of str
-        The parameters.
-    labels : dict
-        A dictionary mapping parameters for which labels were provide to those
-        labels.
-    """
-    if parameters is None:
-        return None, {}
-    # load the labels
-    labels = {}
-    for ii, p in enumerate(parameters):
-        if len(p.split(':')) == 2:
-            p, label = p.split(':')
-            parameters[ii] = p
-            labels[p] = label
-    return parameters, labels
-
-
-def results_from_cli(opts, load_samples=True, **kwargs):
-    """
-    Loads an inference result file along with any labels associated with it
-    from the command line options.
-
-    Parameters
-    ----------
-    opts : ArgumentParser options
-        The options from the command line.
-    load_samples : {True, bool}
-        Load samples from the results file using the parameters, thin_start,
-        and thin_interval specified in the options. The samples are returned
-        as a FieldArray instance.
-
-    **kwargs :
-        All other keyword arguments are passed to the InferenceFile's
-        read_samples function.
-
-    Returns
-    -------
-    fp_all : pycbc.io.InferenceFile
-        The result file as an InferenceFile. If more than one input file,
-        then it returns a list.
-    parameters_all : list
-        List of the parameters to use, parsed from the parameters option.
-        If more than one input file, then it returns a list.
-    labels_all : list
-        List of labels to associate with the parameters. If more than one
-        input file, then it returns a list.
-    samples_all : {None, FieldArray}
-        If load_samples, the samples as a FieldArray; otherwise, None.
-        If more than one input file, then it returns a list.
-    """
-
-    # lists for files and samples from all input files
-    fp_all = []
-    parameters_all = []
-    labels_all = []
-    samples_all = []
-
-    input_files = opts.input_file
-    if isinstance(input_files, str):
-        input_files = [input_files]
-
-    # loop over all input files
-    for input_file in input_files:
-        logging.info("Reading input file %s", input_file)
-
-        # read input file
-        fp = InferenceFile(input_file, "r")
-
-        # get parameters and a dict of labels for each parameter
-        parameters = (fp.variable_params if opts.parameters is None
-                      else opts.parameters)
-        parameters, ldict = parse_parameters_opt(parameters)
-
-        # convert labels dict to list
-        labels = []
-        for p in parameters:
-            try:
-                label = ldict[p]
-            except KeyError:
-                label = fp.read_label(p)
-            labels.append(label)
-
-        # load the samples
-        if load_samples:
-            logging.info("Loading samples")
-
-            # check if need extra parameters for a non-sampling parameter
-            file_parameters, ts = transforms.get_common_cbc_transforms(
-                parameters, fp.variable_params)
-
-            # read samples from file
-            samples = fp.read_samples(
-                file_parameters, thin_start=opts.thin_start,
-                thin_interval=opts.thin_interval, thin_end=opts.thin_end,
-                iteration=opts.iteration,
-                samples_group=opts.parameters_group, **kwargs)
-
-            # add parameters not included in file
-            samples = transforms.apply_transforms(samples, ts)
-
-        # else do not read samples
-        else:
-            samples = None
-
-        # add results to lists from all input files
-        if len(input_files) > 1:
-            fp_all.append(fp)
-            parameters_all.append(parameters)
-            labels_all.append(labels)
-            samples_all.append(samples)
-
-        # else only one input file then do not return lists
-        else:
-            fp_all = fp
-            parameters_all = parameters
-            labels_all = labels
-            samples_all = samples
-
-    return fp_all, parameters_all, labels_all, samples_all
-
-
-def get_file_type(filename):
-    """ Returns I/O object to use for file.
-
-    Parameters
-    ----------
-    filename : str
-        Name of file.
-
-    Returns
-    -------
-    file_type : {InferenceFile, InferenceTXTFile}
-        The type of inference file object to use.
-    """
-    txt_extensions = [".txt", ".dat", ".csv"]
-    hdf_extensions = [".hdf", ".h5"]
-    for ext in hdf_extensions:
-        if filename.endswith(ext):
-            return InferenceFile
-    for ext in txt_extensions:
-        if filename.endswith(ext):
-            return InferenceTXTFile
-    raise TypeError("Extension is not supported.")
-
 
 def add_plot_posterior_option_group(parser):
     """Adds the options needed to configure plots of posterior results.
@@ -585,9 +367,6 @@ def add_plot_posterior_option_group(parser):
                              "injection in the file to work. Any values "
                              "specified by expected-parameters will override "
                              "the values obtained for the injection.")
-    # FIXME: the following should be made an attribute of the results file
-    pgroup.add_argument("--injection-hdf-group", default="H1/injections",
-                        help="HDF group that contains injection values.")
     return pgroup
 
 
@@ -624,47 +403,6 @@ def plot_ranges_from_cli(opts):
             raise ValueError("option --maxs not specified correctly; see help")
         maxs[x[0]] = float(x[1])
     return mins, maxs
-
-
-def injections_from_cli(opts):
-    """Gets injection parameters from the inference file(s).
-
-    Parameters
-    ----------
-    opts : argparser
-        Argparser object that has the command-line objects to parse.
-
-    Returns
-    -------
-    FieldArray
-        Array of the injection parameters from all of the input files given
-        by ``opts.input_file``.
-    """
-    input_files = opts.input_file
-    if isinstance(input_files, str):
-        input_files = [input_files]
-    parameters, _ = parse_parameters_opt(opts.parameters)
-    if parameters is None:
-        with InferenceFile(input_files[0], 'r') as fp:
-            parameters = fp.variable_params
-    injections = None
-    # loop over all input files getting the injection files
-    for input_file in input_files:
-        # read injections from HDF input file as FieldArray
-        these_injs = inject.InjectionSet(
-            input_file,
-            hdf_group=opts.injection_hdf_group,
-        ).table.view(FieldArray)
-        if injections is None:
-            injections = these_injs
-        else:
-            injections = injections.append(these_injs)
-    # check if need extra parameters than parameters stored in injection file
-    _, ts = transforms.get_common_cbc_transforms(parameters,
-                                                 injections.fieldnames)
-    # add parameters not included in injection file
-    injections = transforms.apply_transforms(injections, ts)
-    return injections
 
 
 def expected_parameters_from_cli(opts):

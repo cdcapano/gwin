@@ -22,7 +22,10 @@ from __future__ import print_function
 
 import os
 import sys
+import argparse
 import shutil
+import textwrap
+import numpy
 import logging
 import h5py as _h5py
 from pycbc.io.record import FieldArray, _numpy_function_lib
@@ -34,6 +37,32 @@ from .txt import InferenceTXTFile
 filetypes = {
     EmceeFile.name: EmceeFile,
 }
+
+
+def get_file_type(filename):
+    """ Returns I/O object to use for file.
+
+    Parameters
+    ----------
+    filename : str
+        Name of file.
+
+    Returns
+    -------
+    file_type : {InferenceFile, InferenceTXTFile}
+        The type of inference file object to use.
+    """
+    txt_extensions = [".txt", ".dat", ".csv"]
+    hdf_extensions = [".hdf", ".h5"]
+    for ext in hdf_extensions:
+        if filename.endswith(ext):
+            with _h5py.File(path, 'r') as fp:
+                filetype = fp.attrs['filetype']
+            return filetypes[filetype]
+    for ext in txt_extensions:
+        if filename.endswith(ext):
+            return InferenceTXTFile
+    raise TypeError("Extension is not supported.")
 
 
 def loadfile(path, mode=None, filetype=None, **kwargs):
@@ -64,13 +93,14 @@ def loadfile(path, mode=None, filetype=None, **kwargs):
     if filetype is None:
         # try to read the file to get its filetype
         try:
-            with _h5py.File(path, 'r') as fp:
-                filetype = fp.attrs['filetype']
+            fileclass = get_file_type(path)
         except IOError:
             # file doesn't exist, filetype must be provided
             raise IOError("The file appears not to exist. In this case, "
                           "filetype must be provided.")
-    return filetypes[filetype](path, mode=mode, **kwargs)
+    else:
+        fileclass = filetypes[filetype]
+    return fileclass(path, mode=mode, **kwargs)
 
 
 #
@@ -318,13 +348,16 @@ class PrintFileParams(argparse.Action):
     def __init__(self, nargs=0, **kwargs):
         if nargs != 0:
             raise ValueError("nargs for this action must be 0")
-        super(PrintParams, self).__init__(nargs=nargs, **kwargs)
+        super(PrintFileParams, self).__init__(nargs=nargs, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
         # get the input file(s)
         input_files = namespace.input_file
         if input_files is None:
-            raise ValueError("must provide at least one input-file")
+            raise ValueError("One ore more --input-file must be provided. "
+                             "If input-file was specified, make sure the "
+                             "option to print the file help is after "
+                             "the list of files.")
         parameters = []
         filesbytype = {}
         fileparsers = {}
@@ -338,31 +371,47 @@ class PrintFileParams(argparse.Action):
                 # get any extra options
                 fileparsers[fp.name] = fp.extra_args_parser(add_help=False)
             fp.close()
-        # print out the extra arguments that may be used
-        outstr = "Additional command-line options that may be provided:\n"
-        for ftype, fparser in fileparsers.items():
-            fnames = ', '.join(filesbytype[ftype])
-            if fparser is None:
-                outstr = "\nFile(s) {} use no additional options.".format(
-                    fnames)
-            else:
-                outstr = "\nThe following are used by file(s) {}:".format(
-                    fnames)
-                fparser.print_help()
         # now print information about the parameters
         # take the intersection of all parameters
         parameters = set.intersection(*parameters)
-        outstr = ("With the given input file(s), the following parameters are "
-                  "available:\n{}\n".format(' '.join(sorted(parameters))))
-        outstr += ("\nThe following pycbc functions may be used on these "
-                   "parameters (see http://pycbc.org/pycbc/latest/html for "
-                   "more details):\n{}\n".format(' '.join(sorted(
-                   FieldArray.functionlib.fget(FieldArray).keys()))))
-        outstr += ("\nThe following numpy functions may be used on these "
-                   "parameters:\n{}\n".format(
-                   ' '.join(sorted(_numpy_function_lib.keys()))))
-        print(outstr, file=sys.stdout)
-        # exit the program
+        print("\n"+textwrap.fill("Parameters available with this (these) input "
+                                 "file(s):"), end="\n\n")
+        print(textwrap.fill(' '.join(sorted(parameters))),
+              end="\n\n")
+        # information about the pycbc functions
+        pfuncs = sorted(FieldArray.functionlib.fget(FieldArray).keys())
+        print(textwrap.fill("Available pycbc functions (see "
+                            "http://pycbc.org/pycbc/latest/html for "
+                            "more details):"), end="\n\n") 
+        print(textwrap.fill(', '.join(pfuncs)), end="\n\n")
+        # numpy funcs
+        npfuncs = sorted([name for name,obj in _numpy_function_lib.items()
+                          if isinstance(obj, numpy.ufunc)])
+        print(textwrap.fill("Available numpy functions:"),
+              end="\n\n")
+        print(textwrap.fill(', '.join(npfuncs)), end="\n\n")
+        # misc
+        consts = "e euler_gamma inf nan pi"
+        print(textwrap.fill("Recognized constants:"),
+              end="\n\n")
+        print(consts, end="\n\n")
+        print(textwrap.fill("Python arthimetic (+ - * / // ** %), "
+                            "binary (&, |, etc.), and comparison (>, <, >=, "
+                            "etc.) operators may also be used."), end="\n\n")
+        # print out the extra arguments that may be used
+        outstr = textwrap.fill("The following are additional command-line "
+                               "options that may be provided, along with the "
+                               "input files that understand them:")
+        print("\n"+outstr, end="\n\n")
+        for ftype, fparser in fileparsers.items():
+            fnames = ', '.join(filesbytype[ftype])
+            if fparser is None:
+                outstr = textwrap.fill(
+                    "File(s) {} use no additional options.".format(fnames))
+                print(outstr, end="\n\n")
+            else:
+                fparser.usage = fnames
+                fparser.print_help()
         parser.exit(0)
 
 
@@ -380,9 +429,10 @@ def add_results_option_group(parser):
     """
 
     results_reading_group = parser.add_argument_group(
-        "Arguments for loading results. Additional, file-specific arguments "
+        title="Arguments for loading results",
+        description="Additional, file-specific arguments "
         "may also be provided, depending on what input-files are given. See "
-        "print-all-opts for details.")
+        "--file-help for details.")
 
     # required options
     results_reading_group.add_argument(
@@ -393,17 +443,20 @@ def add_results_option_group(parser):
         action=ParseParametersArg,
         help="Name of parameters to load. If none provided will load all of "
              "the model params in the input-file. If provided, the "
-             "parameters can be any of the model params or posteriors in "
-             "the input file, derived parameters from them, or any function "
-             "of them. Syntax for functions is python; any math functions in "
+             "parameters can be any of the model params or posterior stats "
+             "(loglikelihood, logprior, etc.) in the input file(s), derived "
+             "parameters from them, or any function of them. If multiple "
+             "files are provided, any parameter common to all files may be "
+             "used. Syntax for functions is python; any math functions in "
              "the numpy libary may be used. Can optionally also specify a "
-             "label for each parameter. If no label is provided, will try to "
-             "retrieve a label from the input-file. If no label can be found "
-             "in the input-file, will try to get a label from "
-             "pycbc.waveform.parameters. If no label can be found in either "
-             "place, will just use the parameter. To see all possible "
-             "parameters that may be used, as well as avaiable functions, run "
-             "--print-all-opts, along with one or more input files.")
+             "LABEL for each parameter. If no LABEL is provided, PARAM will "
+             "used as the LABEL. If LABEL is the same as a parameter in "
+             "pycbc.waveform.parameters, the label property of that parameter "
+             "will be used (e.g., if LABEL were 'mchirp' then {} would be "
+             "used). To see all possible parameters that may be used with the "
+             "given input file(s), as well as all avaiable functions, run "
+             "--file-help, along with one or more input files.".format(
+             _waveform.parameters.mchirp.label))
     # optionals
     results_reading_group.add_argument(
         "--thin-start", type=int, default=None,
@@ -418,14 +471,15 @@ def add_results_option_group(parser):
         help="Sample number to stop collecting samples to plot. If none "
              "provided, will use the input file's `thin_end` attribute.")
     # advanced help
-    results.reading_group.add_argument(
-        "-H", "--print-all-opts", action=PrintFileParams,
+    results_reading_group.add_argument(
+        "-H", "--file-help", action=PrintFileParams,
         help="Based on the provided input-file(s), print all available "
              "parameters that may be retrieved and all possible functions on "
              "those parameters. Also print available additional arguments "
              "that may be passed. This option is like an "
              "advanced --help: if run, the program will just print the "
-             "information to screen, then exit.")
+             "information to screen, then exit. NOTE: this option must be "
+             "provided after the --input-file option.")
     return results_reading_group
 
 
