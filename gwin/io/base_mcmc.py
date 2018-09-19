@@ -29,6 +29,7 @@ from __future__ import absolute_import
 from abc import (ABCMeta, abstractmethod)
 
 import numpy
+import argparse
 
 
 class MCMCIO(object):
