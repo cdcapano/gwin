@@ -178,8 +178,10 @@ class MCMCIO(object):
 
     def samples_from_cli(self, opts, extra_opts=None, parameters=None):
         """Reads samples from the given command-line options."""
-        if parameters is None:
-            parameters, _ = self.parameters_from_cli(opts)
+        if parameters is None and opts.parameters is None:
+            parameters = self.variable_args
+        elif parameters is None:
+            parameters = opts.parameters
         # parse the extra-opts
         if extra_opts is not None:
             opts, unknown = self.extra_args_parser().parse_args(extra_opts,
