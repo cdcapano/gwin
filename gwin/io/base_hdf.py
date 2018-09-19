@@ -41,6 +41,7 @@ from pycbc.io import FieldArray
 from pycbc.types import FrequencySeries
 from pycbc.waveform import parameters as wfparams
 
+from ..option_utils import parse_parameters_opt
 
 class BaseInferenceFile(h5py.File):
     """Base class for all inference hdf files.
@@ -209,6 +210,43 @@ class BaseInferenceFile(h5py.File):
             Name of the file to write to.
         \**kwargs :
             Any other keyword args the sampler needs to write the posterior.
+        """
+        pass
+
+    def parameters_from_cli(self, opts):
+        """Parses the --parameters option in the given command-line options.
+
+        Parameters
+        ----------
+        opts : argparse.Namespace
+            Options parsed by argparse (i.e., the thing returned by
+            ArgumentParser.parse_args).
+
+        Returns
+        -------
+        parameters : list
+            List of parameters to load. If --parameters were not provided,
+            defaults to the ``variable_params``.
+        labels : dict
+            Dictionary mapping parameter names to labels.
+        """
+        parameters = (self.variable_params if opts.parameters is None
+                      else opts.parameters)
+        return parse_parameters_opt(parameters)
+
+    @abstractmethod
+    def samples_from_cli(self, opts, parameters=None):
+        """This should load samples using the given command-line options.
+        """
+        pass
+
+    @staticmethod
+    def extra_args_parser(parser=None, **kwargs):
+        """Provides a parser that can be used to parse sampler-specific command
+        line options for loading samples.
+
+        This is optional. Inheriting classes may override this if they want to
+        implement their own options.
         """
         pass
 
