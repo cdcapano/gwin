@@ -510,3 +510,35 @@ def results_from_cli(opts, extra_opts=None, load_samples=True):
     return fp_all, parameters_all, labels_all, samples_all
 
 
+def injections_from_cli(opts):
+    """Gets injection parameters from the inference file(s).
+
+    Parameters
+    ----------
+    opts : argparser
+        Argparser object that has the command-line objects to parse.
+
+    Returns
+    -------
+    FieldArray
+        Array of the injection parameters from all of the input files given
+        by ``opts.input_file``.
+    """
+    input_files = opts.input_file
+    if isinstance(input_files, str):
+        input_files = [input_files]
+    injections = None
+    # loop over all input files getting the injection files
+    for input_file in input_files:
+        fp = loadfile(input_file, 'r')
+        these_injs = fp.read_injections()
+        if injections is None:
+            injections = these_injs
+        else:
+            injections = injections.append(these_injs)
+    # check if need extra parameters than parameters stored in injection file
+    _, ts = transforms.get_common_cbc_transforms(opts.parameters,
+                                                 injections.fieldnames)
+    # add parameters not included in injection file
+    injections = transforms.apply_transforms(injections, ts)
+    return injections

@@ -40,8 +40,7 @@ from pycbc import DYN_RANGE_FAC
 from pycbc.io import FieldArray
 from pycbc.types import FrequencySeries
 from pycbc.waveform import parameters as wfparams
-
-from .cli import parse_parameters_opt
+from pycbc.inject import InjectionSet
 
 class BaseInferenceFile(h5py.File):
     """Base class for all inference hdf files.
@@ -213,29 +212,8 @@ class BaseInferenceFile(h5py.File):
         """
         pass
 
-    def parameters_from_cli(self, opts):
-        """Parses the --parameters option in the given command-line options.
-
-        Parameters
-        ----------
-        opts : argparse.Namespace
-            Options parsed by argparse (i.e., the thing returned by
-            ArgumentParser.parse_args).
-
-        Returns
-        -------
-        parameters : list
-            List of parameters to load. If --parameters were not provided,
-            defaults to the ``variable_params``.
-        labels : dict
-            Dictionary mapping parameter names to labels.
-        """
-        parameters = (self.variable_params if opts.parameters is None
-                      else opts.parameters)
-        return parse_parameters_opt(parameters)
-
     @abstractmethod
-    def samples_from_cli(self, opts, parameters=None):
+    def samples_from_cli(self, opts, extra_opts=None, parameters=None):
         """This should load samples using the given command-line options.
         """
         pass
@@ -474,6 +452,20 @@ class BaseInferenceFile(h5py.File):
                 super(BaseInferenceFile, self).copy(fp, self.injections_group)
         except IOError:
             logging.warn("Could not read %s as an HDF file", injection_file)
+
+    def read_injections(self):
+        """Gets injection parameters.
+
+        Returns
+        -------
+        FieldArray
+            Array of the injection parameters.
+        """
+        injset = InjectionSet(self.filename, hdf_group=self.injections_group)
+        injections = injset.table.view(FieldArray)
+        # close the new open filehandler to self
+        injset.filehandler.close()
+        return injections
 
     def write_command_line(self):
         """Writes command line to attributes.
