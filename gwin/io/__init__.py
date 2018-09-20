@@ -32,6 +32,7 @@ from pycbc.io.record import FieldArray, _numpy_function_lib
 from pycbc import transforms as _transforms
 from pycbc import waveform as _waveform
 
+from ..option_utils import (ParseLabelArg, ParseParametersArg)
 from .emcee import EmceeFile
 from .txt import InferenceTXTFile
 
@@ -293,109 +294,6 @@ class NoInputFileError(Exception):
     pass
 
 
-class ParseLabelArg(argparse.Action):
-    """Argparse action that will parse arguments that can accept labels.
-
-    This assumes that the values set on the command line for its assigned
-    argument are strings formatted like ``PARAM[:LABEL]``. When the arguments
-    are parsed, the ``LABEL`` bit is stripped off and added to a dictionary
-    mapping ``PARAM -> LABEL``. This dictionary is stored to the parsed
-    namespace called ``{dest}_labels``, where ``{dest}`` is the argument's
-    ``dest`` setting (by default, this is the same as the option string).
-    Likewise, the argument's ``dest`` in the parsed namespace is updated so
-    that it is just ``PARAM``.
-
-    If no ``LABEL`` is provided, then ``PARAM`` will be used for ``LABEL``.
-
-    This action can work on arguments that have ``nargs != 0`` and ``type`` set
-    to ``str``.
-    """
-    def __init__(self, type=str, nargs=None, **kwargs):
-        # check that type is string
-        if type != str:
-            raise ValueError("the type for this action must be a string")
-        if nargs == 0:
-            raise ValueError("nargs must not be 0 for this action")
-        super(ParseLabelArg, self).__init__(type=type, nargs=nargs,
-                                                 **kwargs)
-
-    def __call__(self, parser, namespace, values, option_string=None):
-        singlearg = isinstance(values, (str, unicode))
-        if singlearg:
-            values = [values]
-        params = []
-        labels = {}
-        for param in values:
-            psplit = param.split(':')
-            if len(psplit) == 2:
-                param, label = psplit
-            else:
-                label = param
-            labels[param] = label
-            params.append(param)
-        # update the namespace
-        if singlearg:
-            params = params[0]
-        setattr(namespace, self.dest, params)
-        setattr(namespace, '{}_labels'.format(self.dest), labels)
-
-
-class ParseParametersArg(ParseLabelArg):
-    """Argparse action that will parse parameters and labels from an opton.
-
-    Does the same as ``ParseLabelArg``, with the additional functionality that
-    if ``LABEL`` is a known parameter in ``pycbc.waveform.parameters``, then
-    the label attribute there will be used in the labels dictionary.
-    Otherwise, ``LABEL`` will be used.
-
-    Examples
-    --------
-    Create a parser and add two arguments that use this action (note that the
-    first argument accepts multiple inputs while the second only accepts a
-    single input):
-
-    >>> import argparse
-    >>> parser = argparse.ArgumentParser()
-    >>> parser.add_argument('--parameters', type=str, nargs="+",
-                            action=ParseParametersArg)
-    >>> parser.add_argument('--z-arg', type=str, action=ParseParametersArg)
-
-    Parse a command line that uses these options:
-
-    >>> import shlex
-    >>> cli = "--parameters 'mass1+mass2:mtotal' ra ni --z-arg foo:bar"
-    >>> opts = parser.parse_args(shlex.split(cli))
-    >>> opts.parameters
-    ['mass1+mass2', 'ra', 'ni']
-    >>> opts.parameters_labels
-    {'mass1+mass2': '$M~(\\mathrm{M}_\\odot)$', 'ni': 'ni', 'ra': '$\\alpha$'}
-    >>> opts.z_arg
-    'foo'
-    >>> opts.z_arg_labels
-    {'foo': 'bar'}
-
-    In the above, the first argument to ``--parameters`` was ``mtotal``. Since
-    this is a recognized parameter in ``pycbc.waveform.parameters``, the label
-    dictionary contains the latex string associated with the ``mtotal``
-    parameter. A label was not provided for the second argument, and so ``ra``
-    was used. Since ``ra`` is also a recognized parameter, its associated latex
-    string was used in the labels dictionary. Since ``ni`` and ``bar`` (the
-    label for ``z-arg``) are not recognized parameters, they were just used
-    as-is in the labels dictionaries.
-    """
-    def __call__(self, parser, namespace, values, option_string=None):
-        super(ParseParametersArg, self).__call__(parser, namespace, values,
-                                                 option_string=option_string)
-        # try to replace the labels with a label from waveform.parameters
-        labels = getattr(namespace, '{}_labels'.format(self.dest))
-        for param, label in labels.items():
-            try:
-                label = getattr(_waveform.parameters, label).label
-                labels[param] = label
-            except AttributeError:
-                pass
-
-
 class PrintFileParams(argparse.Action):
     """Argparse action that will load input files and print possible parameters
     to screen. Once this is done, the program is forced to exit immediately.
@@ -613,7 +511,7 @@ class ResultsArgumentParser(argparse.ArgumentParser):
             args, opts)
         # populate the parameters option if it wasn't specified
         if opts.parameters is None:
-            parameters = get_common_parameters(opts.input_files,
+            parameters = get_common_parameters(opts.input_file,
                                                collection='variable_params')
             # now call parse parameters action to populate the namespace
             self.actions['parameters'](self, opts, parameters)
@@ -660,8 +558,6 @@ def results_from_cli(opts, extra_opts=None, load_samples=True):
 
     # lists for files and samples from all input files
     fp_all = []
-    parameters_all = []
-    labels_all = {}
     samples_all = []
 
     input_files = opts.input_file
@@ -699,18 +595,14 @@ def results_from_cli(opts, extra_opts=None, load_samples=True):
         # add results to lists from all input files
         if len(input_files) > 1:
             fp_all.append(fp)
-            parameters_all.append(opts.parameters)
-            labels_all.update(opts.parameters_labels)
             samples_all.append(samples)
 
         # else only one input file then do not return lists
         else:
             fp_all = fp
-            parameters_all = opts.parameters
-            labels_all = opts.parameters_labels
             samples_all = samples
 
-    return fp_all, parameters_all, labels_all, samples_all
+    return fp_all, opts.parameters, opts.parameters_labels, samples_all
 
 
 def injections_from_cli(opts):
