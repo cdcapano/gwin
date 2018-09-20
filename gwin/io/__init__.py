@@ -29,6 +29,7 @@ import numpy
 import logging
 import h5py as _h5py
 from pycbc.io.record import FieldArray, _numpy_function_lib
+from pycbc import transforms as _transforms
 from pycbc import waveform as _waveform
 
 from .emcee import EmceeFile
@@ -53,10 +54,10 @@ def get_file_type(filename):
         The type of inference file object to use.
     """
     txt_extensions = [".txt", ".dat", ".csv"]
-    hdf_extensions = [".hdf", ".h5"]
+    hdf_extensions = [".hdf", ".h5", ".bkup", ".checkpoint"]
     for ext in hdf_extensions:
         if filename.endswith(ext):
-            with _h5py.File(path, 'r') as fp:
+            with _h5py.File(filename, 'r') as fp:
                 filetype = fp.attrs['filetype']
             return filetypes[filetype]
     for ext in txt_extensions:
@@ -248,8 +249,52 @@ def validate_checkpoint_files(checkpoint_file, backup_file):
 #
 # =============================================================================
 #
-class ParseParametersArg(argparse.Action):
-    """Argparse action that will parse parameters and labels from an opton.
+def get_common_parameters(input_files, collection=None):
+    """Gets a list of variable params that are common across all input files.
+
+    If no common parameters are found, a ``ValueError`` is raised.
+
+    Parameters
+    ----------
+    input_files : list of str
+        List of input files to load.
+    collection : str, optional
+        What group of parameters to load. Can be the name of a list of
+        parameters stored in the files' attrs (e.g., "variable_params"), or
+        "all". If "all", will load all of the parameters in the files'
+        samples group. Default is to load all.
+
+    Returns
+    -------
+    list :
+        List of the parameter names.
+    """
+    if collection is None:
+        collection = "all"
+    parameters = []
+    for fn in input_files:
+        fp = loadfile(fn, 'r')
+        if collection == 'all':
+            ps = fp[fp.samples_group].keys()
+        else:
+            ps = fp.attrs[collection]
+        parameters.append(set(ps))
+        fp.close()
+    parameters = list(set.intersection(*parameters))
+    if parameters == []:
+        raise ValueError("no common parameters found for collection {} in "
+                         "files {}".format(collection, ', '.join(input_files)))
+    return parameters 
+
+
+class NoInputFileError(Exception):
+    """Raised in custom argparse Actions by arguments needing input-files when
+    no file(s) were provided."""
+    pass
+
+
+class ParseLabelArg(agparse.Action):
+    """Argparse action that will parse arguments that can accept labels.
 
     This assumes that the values set on the command line for its assigned
     argument are strings formatted like ``PARAM[:LABEL]``. When the arguments
@@ -262,12 +307,47 @@ class ParseParametersArg(argparse.Action):
 
     If no ``LABEL`` is provided, then ``PARAM`` will be used for ``LABEL``.
 
-    If ``LABEL`` is a known parameter in ``pycbc.waveform.parameters``, then
-    the label attribute there will be used in the ``parameter_labels``.
-    Otherwise, ``LABEL`` will be used.
-
     This action can work on arguments that have ``nargs != 0`` and ``type`` set
     to ``str``.
+    """
+    def __init__(self, type=str, nargs=None, metavar="VALUE[:LABEL]",
+                 **kwargs):
+        # check that type is string
+        if type != str:
+            raise ValueError("the type for this action must be a string")
+        if nargs == 0:
+            raise ValueError("nargs must not be 0 for this action")
+        super(ParseLabelArg, self).__init__(type=type, nargs=nargs,
+                                                 **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        singlearg = isinstance(values, (str, unicode))
+        if singlearg:
+            values = [values]
+        params = []
+        labels = {}
+        for param in values:
+            psplit = param.split(':')
+            if len(psplit) == 2:
+                param, label = psplit
+            else:
+                label = param
+            labels[param] = label
+            params.append(param)
+        # update the namespace
+        if singlearg:
+            params = params[0]
+        setattr(namespace, self.dest, params)
+        setattr(namespace, '{}_labels'.format(self.dest), labels)
+
+
+class ParseParametersArg(ParseLabelArg):
+    """Argparse action that will parse parameters and labels from an opton.
+
+    Does the same as ``ParseLabelArg``, with the additional functionality that
+    if ``LABEL`` is a known parameter in ``pycbc.waveform.parameters``, then
+    the label attribute there will be used in the labels dictionary.
+    Otherwise, ``LABEL`` will be used.
 
     Examples
     --------
@@ -304,39 +384,17 @@ class ParseParametersArg(argparse.Action):
     label for ``z-arg``) are not recognized parameters, they were just used
     as-is in the labels dictionaries.
     """
-    def __init__(self, type=str, nargs=None, **kwargs):
-        # check that type is string
-        if type != str:
-            raise ValueError("the type for this action must be a string")
-        if nargs == 0:
-            raise ValueError("nargs must not be 0 for this action")
-        super(ParseParametersArg, self).__init__(type=type, nargs=nargs,
-                                                 **kwargs)
-
     def __call__(self, parser, namespace, values, option_string=None):
-        singlearg = isinstance(values, (str, unicode))
-        if singlearg:
-            values = [values]
-        params = []
-        labels = {}
-        for param in values:
-            psplit = param.split(':')
-            if len(psplit) == 2:
-                param, label = psplit
-            else:
-                label = param
-            # try to get the label from waveform.parameters
+        super(ParseParametersArg, self).__call__(parser, namespace, values,
+                                                 option_string=option_string)
+        # try to replace the labels with a label from waveform.parameters
+        labels = getattr(namespace, '{}_labels'.format(self.dest)
+        for param, label in labels.items():
             try:
                 label = getattr(_waveform.parameters, label).label
+                labels[param] = label
             except AttributeError:
                 pass
-            labels[param] = label
-            params.append(param)
-        # update the namespace
-        if singlearg:
-            params = params[0]
-        setattr(namespace, self.dest, params)
-        setattr(namespace, '{}_labels'.format(self.dest), labels)
 
 
 class PrintFileParams(argparse.Action):
@@ -344,6 +402,10 @@ class PrintFileParams(argparse.Action):
     to screen. Once this is done, the program is forced to exit immediately.
 
     The behvior is similar to --help, except that the input-file is read.
+
+    .. note::
+        The ``input_file`` attribute must be set in the parser namespace before
+        this action is called. Otherwise, a ``NoInputFileError`` is raised.
     """
     def __init__(self, nargs=0, **kwargs):
         if nargs != 0:
@@ -354,16 +416,20 @@ class PrintFileParams(argparse.Action):
         # get the input file(s)
         input_files = namespace.input_file
         if input_files is None:
-            raise ValueError("One ore more --input-file must be provided. "
-                             "If input-file was specified, make sure the "
-                             "option to print the file help is after "
-                             "the list of files.")
-        parameters = []
+            # see if we should raise an error
+            try:
+                raise_err = not parser.no_input_file_err
+            except AttributeError:
+                raise_err = True
+            if raise_err:
+                raise NoInputFileError("must provide at least one input file")
+            else:
+                # just return to stop further processing
+                return
         filesbytype = {}
         fileparsers = {}
         for fn in input_files:
             fp = loadfile(fn, 'r')
-            parameters.append(set(fp[fp.samples_group].keys()))
             try:
                 filesbytype[fp.name].append(fn)
             except KeyError:
@@ -371,9 +437,8 @@ class PrintFileParams(argparse.Action):
                 # get any extra options
                 fileparsers[fp.name] = fp.extra_args_parser(add_help=False)
             fp.close()
-        # now print information about the parameters
-        # take the intersection of all parameters
-        parameters = set.intersection(*parameters)
+        # now print information about the intersection of all parameters
+        parameters = get_common_parameters(input_files, collection='all')
         print("\n"+textwrap.fill("Parameters available with this (these) input "
                                  "file(s):"), end="\n\n")
         print(textwrap.fill(' '.join(sorted(parameters))),
@@ -478,9 +543,92 @@ def add_results_option_group(parser):
              "those parameters. Also print available additional arguments "
              "that may be passed. This option is like an "
              "advanced --help: if run, the program will just print the "
-             "information to screen, then exit. NOTE: this option must be "
-             "provided after the --input-file option.")
+             "information to screen, then exit.")
     return results_reading_group
+
+
+class ResultsArgumentParser(argparse.ArgumentParser):
+    """Wraps argument parser, and preloads arguments needed for loading samples
+    from a file.
+
+    This parser class should be used by any program that wishes to use the
+    standard arguments for loading samples.
+
+    This class is needed because some of the options need to know what input
+    files were provided. The standard ArgumentParser doesn't handle
+    communication between arguments. Namely, the order in which the parsed
+    namespace is populated depends on the order that arguments were provided
+    on the command line. This means that if the input-files argument were
+    provided after the arguments that need to know what the input files are,
+    those arguments will not know what the input-files are when their actions
+    are called.
+
+    This gets around that issue by parsing the command line twice: first to get
+    the input files, and second to carry out the input-file dependent
+    arguments.
+    """
+    def __init__(self, **kwargs):
+        super(ResultsArgumentParser, self).__init__(**kwargs)
+        # add attribute to communicate to arguments what to do when there is
+        # no input files
+        self.no_input_file_err = False
+        # add the results option grup
+        add_results_option_group(self)
+
+    @property
+    def actions(self):
+        """Exposes the actions this parser can do as a dictionary.
+
+        The dictionary maps the ``dest`` to actions.
+        """
+        return {act.dest: act for act in self._actions}
+
+    def _unset_required(self):
+        """Convenience function to turn off required arguments for first parse.
+        """
+        self._required_args = [act for act in self._actions if act.required]
+        for act in self._required_args:
+            act.required = False
+
+    def _reset_required(self):
+        """Convenience function to turn required arguments back on.
+        """
+        for act in self._required_args:
+            act.required = True
+
+    def parse_known_args(self, args=None, namespace=None):
+        """Parse args method to handle input-file dependent arguments."""
+        # run parse args once to make sure the name space is populated with
+        # the input files. We'll turn off raising NoInputFileErrors on this
+        # pass
+        self.no_input_file_err = True
+        self._unset_required()
+        opts, extra_opts = super(ResultsArgumentParser, self).parse_known_args(
+            args, namespace)
+        # now do it again
+        self.no_input_file_err = False
+        self._reset_required()
+        opts, extra_opts = super(ResultsArgumentParser, self).parse_known_args(
+            args, opts)
+        # populate the parameters option if it wasn't specified
+        if opts.parameters is None:
+            parameters = get_common_parameters(opts.input_files,
+                                               collection='variable_params')
+            # now call parse parameters action to populate the namespace
+            self.actions['parameters'](self, opts, parameters)
+        # parse the sampler-specific options and check for any unknowns
+        unknown = []
+        for fn in opts.input_file:
+            fp = loadfile(fn, 'r')
+            sampler_parser = fp.extra_args_parser()
+            if sampler_parser is not None:
+                opts, still_unknown = sampler_parser.parse_known_args(
+                    extra_opts, namespace=opts)
+                unknown.append(set(still_unknown))
+        # the intersection of the unknowns are options not understood by
+        # any of the files
+        unknown = set.intersection(*unknown)
+        return opts, list(unknown)
 
 
 def results_from_cli(opts, extra_opts=None, load_samples=True):
@@ -531,7 +679,7 @@ def results_from_cli(opts, extra_opts=None, load_samples=True):
             logging.info("Loading samples")
 
             # check if need extra parameters for a non-sampling parameter
-            file_parameters, ts = transforms.get_common_cbc_transforms(
+            file_parameters, ts = _transforms.get_common_cbc_transforms(
                 opts.parameters, fp.variable_params)
 
             # read samples from file
@@ -541,7 +689,7 @@ def results_from_cli(opts, extra_opts=None, load_samples=True):
             logging.info("Using {} samples".format(samples.size))
 
             # add parameters not included in file
-            samples = transforms.apply_transforms(samples, ts)
+            samples = _transforms.apply_transforms(samples, ts)
 
         # else do not read samples
         else:
@@ -591,8 +739,8 @@ def injections_from_cli(opts):
         else:
             injections = injections.append(these_injs)
     # check if need extra parameters than parameters stored in injection file
-    _, ts = transforms.get_common_cbc_transforms(opts.parameters,
-                                                 injections.fieldnames)
+    _, ts = _transforms.get_common_cbc_transforms(opts.parameters,
+                                                  injections.fieldnames)
     # add parameters not included in injection file
-    injections = transforms.apply_transforms(injections, ts)
+    injections = _transforms.apply_transforms(injections, ts)
     return injections
