@@ -293,7 +293,7 @@ class NoInputFileError(Exception):
     pass
 
 
-class ParseLabelArg(agparse.Action):
+class ParseLabelArg(argparse.Action):
     """Argparse action that will parse arguments that can accept labels.
 
     This assumes that the values set on the command line for its assigned
@@ -310,8 +310,7 @@ class ParseLabelArg(agparse.Action):
     This action can work on arguments that have ``nargs != 0`` and ``type`` set
     to ``str``.
     """
-    def __init__(self, type=str, nargs=None, metavar="VALUE[:LABEL]",
-                 **kwargs):
+    def __init__(self, type=str, nargs=None, **kwargs):
         # check that type is string
         if type != str:
             raise ValueError("the type for this action must be a string")
@@ -388,7 +387,7 @@ class ParseParametersArg(ParseLabelArg):
         super(ParseParametersArg, self).__call__(parser, namespace, values,
                                                  option_string=option_string)
         # try to replace the labels with a label from waveform.parameters
-        labels = getattr(namespace, '{}_labels'.format(self.dest)
+        labels = getattr(namespace, '{}_labels'.format(self.dest))
         for param, label in labels.items():
             try:
                 label = getattr(_waveform.parameters, label).label
@@ -501,8 +500,10 @@ def add_results_option_group(parser):
 
     # required options
     results_reading_group.add_argument(
-        "--input-file", type=str, required=True, nargs="+",
-        help="Path to input HDF file(s).")
+        "--input-file", type=str, required=True, nargs="+", 
+        action=ParseLabelArg, metavar='FILE[:LABEL]',
+        help="Path to input HDF file(s). A label may be specified for each "
+             "input file to use for plots when multiple files are specified.")
     results_reading_group.add_argument(
         "--parameters", type=str, nargs="+", metavar="PARAM[:LABEL]",
         action=ParseParametersArg,
