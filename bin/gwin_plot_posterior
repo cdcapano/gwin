@@ -192,9 +192,6 @@ if len(opts.input_file) > 1:
 # set DPI
 fig.set_dpi(200)
 
-# set tight layout
-fig.set_tight_layout(True)
-
 # save
 metadata.save_fig_with_metadata(
                  fig, opts.output_file, {},
