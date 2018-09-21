@@ -631,9 +631,4 @@ def injections_from_cli(opts):
             injections = these_injs
         else:
             injections = injections.append(these_injs)
-    # check if need extra parameters than parameters stored in injection file
-    _, ts = _transforms.get_common_cbc_transforms(opts.parameters,
-                                                  injections.fieldnames)
-    # add parameters not included in injection file
-    injections = _transforms.apply_transforms(injections, ts)
     return injections

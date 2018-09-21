@@ -431,7 +431,6 @@ class BaseInferenceFile(h5py.File):
         if group is None:
             group = subgroup
         else:
-            print group, subgroup
             group = '/'.join([group, subgroup])
         for ifo in psds:
             self[group.format(ifo=ifo)] = psds[ifo]
@@ -464,7 +463,7 @@ class BaseInferenceFile(h5py.File):
         injset = InjectionSet(self.filename, hdf_group=self.injections_group)
         injections = injset.table.view(FieldArray)
         # close the new open filehandler to self
-        injset.filehandler.close()
+        injset._injhandler.filehandler.close()
         return injections
 
     def write_command_line(self):
