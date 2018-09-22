@@ -292,7 +292,7 @@ class BaseInferenceFile(h5py.File):
 
     def samples_from_cli(self, opts, parameters=None, **kwargs):
         """Reads samples from the given command-line options.
-        
+
         Parameters
         ----------
         opts : argparse Namespace

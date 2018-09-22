@@ -285,7 +285,7 @@ def get_common_parameters(input_files, collection=None):
     if parameters == []:
         raise ValueError("no common parameters found for collection {} in "
                          "files {}".format(collection, ', '.join(input_files)))
-    return parameters 
+    return parameters
 
 
 class NoInputFileError(Exception):
@@ -338,18 +338,18 @@ class PrintFileParams(argparse.Action):
             fp.close()
         # now print information about the intersection of all parameters
         parameters = get_common_parameters(input_files, collection='all')
-        print("\n"+textwrap.fill("Parameters available with this (these) input "
-                                 "file(s):"), end="\n\n")
+        print("\n"+textwrap.fill("Parameters available with this (these) "
+                                 "input file(s):"), end="\n\n")
         print(textwrap.fill(' '.join(sorted(parameters))),
               end="\n\n")
         # information about the pycbc functions
         pfuncs = sorted(FieldArray.functionlib.fget(FieldArray).keys())
         print(textwrap.fill("Available pycbc functions (see "
                             "http://pycbc.org/pycbc/latest/html for "
-                            "more details):"), end="\n\n") 
+                            "more details):"), end="\n\n")
         print(textwrap.fill(', '.join(pfuncs)), end="\n\n")
         # numpy funcs
-        npfuncs = sorted([name for name,obj in _numpy_function_lib.items()
+        npfuncs = sorted([name for (name, obj) in _numpy_function_lib.items()
                           if isinstance(obj, numpy.ufunc)])
         print(textwrap.fill("Available numpy functions:"),
               end="\n\n")
@@ -486,7 +486,7 @@ class ResultsArgumentParser(argparse.ArgumentParser):
     def add_results_option_group(self):
         """Adds the options used to call gwin.io.results_from_cli function
         to the parser.
-        
+
         These are options releated to loading the results from a run of
         gwin, for purposes of plotting and/or creating tables.
 
@@ -495,45 +495,46 @@ class ResultsArgumentParser(argparse.ArgumentParser):
         """
         results_reading_group = self.add_argument_group(
             title="Arguments for loading results",
-            description="Additional, file-specific arguments "
-            "may also be provided, depending on what input-files are given. See "
+            description="Additional, file-specific arguments may also be "
+            "provided, depending on what input-files are given. See "
             "--file-help for details.")
         results_reading_group.add_argument(
-            "--input-file", type=str, required=True, nargs="+", 
+            "--input-file", type=str, required=True, nargs="+",
             action=ParseLabelArg, metavar='FILE[:LABEL]',
-            help="Path to input HDF file(s). A label may be specified for each "
-                 "input file to use for plots when multiple files are specified.")
+            help="Path to input HDF file(s). A label may be specified for "
+                 "each input file to use for plots when multiple files are "
+                 "specified.")
         # advanced help
         results_reading_group.add_argument(
             "-H", "--file-help",
             action=PrintFileParams, skip_args=self.skip_args,
             help="Based on the provided input-file(s), print all available "
-                 "parameters that may be retrieved and all possible functions on "
-                 "those parameters. Also print available additional arguments "
-                 "that may be passed. This option is like an "
+                 "parameters that may be retrieved and all possible functions "
+                 "on those parameters. Also print available additional "
+                 "arguments that may be passed. This option is like an "
                  "advanced --help: if run, the program will just print the "
                  "information to screen, then exit.")
         results_reading_group.add_argument(
             "--parameters", type=str, nargs="+", metavar="PARAM[:LABEL]",
             action=ParseParametersArg,
-            help="Name of parameters to load. If none provided will load all of "
-                 "the model params in the input-file. If provided, the "
-                 "parameters can be any of the model params or posterior stats "
-                 "(loglikelihood, logprior, etc.) in the input file(s), derived "
-                 "parameters from them, or any function of them. If multiple "
-                 "files are provided, any parameter common to all files may be "
-                 "used. Syntax for functions is python; any math functions in "
-                 "the numpy libary may be used. Can optionally also specify a "
-                 "LABEL for each parameter. If no LABEL is provided, PARAM will "
-                 "used as the LABEL. If LABEL is the same as a parameter in "
-                 "pycbc.waveform.parameters, the label property of that parameter "
-                 "will be used (e.g., if LABEL were 'mchirp' then {} would be "
-                 "used). To see all possible parameters that may be used with the "
-                 "given input file(s), as well as all avaiable functions, run "
-                 "--file-help, along with one or more input files.".format(
-                 _waveform.parameters.mchirp.label))
+            help="Name of parameters to load. If none provided will load all "
+                 "of the model params in the input-file. If provided, the "
+                 "parameters can be any of the model params or posterior "
+                 "stats (loglikelihood, logprior, etc.) in the input file(s), "
+                 "derived parameters from them, or any function of them. If "
+                 "multiple files are provided, any parameter common to all "
+                 "files may be used. Syntax for functions is python; any math "
+                 "functions in the numpy libary may be used. Can optionally "
+                 "also specify a LABEL for each parameter. If no LABEL is "
+                 "provided, PARAM will used as the LABEL. If LABEL is the "
+                 "same as a parameter in pycbc.waveform.parameters, the label "
+                 "property of that parameter will be used (e.g., if LABEL "
+                 "were 'mchirp' then {} would be used). To see all possible "
+                 "parameters that may be used with the given input file(s), "
+                 "as well as all avaiable functions, run --file-help, along "
+                 "with one or more input files.".format(
+                    _waveform.parameters.mchirp.label))
         return results_reading_group
-
 
 
 def results_from_cli(opts, load_samples=True):

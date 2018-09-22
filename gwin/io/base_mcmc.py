@@ -152,7 +152,7 @@ class MCMCIO(object):
     def extra_args_parser(parser=None, skip_args=None, **kwargs):
         """Create a parser to parse sampler-specific arguments for loading
         samples.
-        
+
         Parameters
         ----------
         parser : argparse.ArgumentParser, optional
@@ -185,20 +185,22 @@ class MCMCIO(object):
         if 'thin-start' not in skip_args:
             act = parser.add_argument(
                 "--thin-start", type=int, default=None,
-                help="Sample number to start collecting samples to plot. If none "
-                     "provided, will use the input file's `thin_start` attribute.")
+                help="Sample number to start collecting samples to plot. If "
+                     "none provided, will use the input file's `thin_start` "
+                     "attribute.")
             actions.append(act)
         if 'thin-interval' not in skip_args:
             act = parser.add_argument(
                 "--thin-interval", type=int, default=None,
-                help="Interval to use for thinning samples. If none provided, will "
-                     "use the input file's `thin_interval` attribute.")
+                help="Interval to use for thinning samples. If none provided, "
+                     "will use the input file's `thin_interval` attribute.")
             actions.append(act)
         if 'thin-end' not in skip_args:
             act = parser.add_argument(
                 "--thin-end", type=int, default=None,
-                help="Sample number to stop collecting samples to plot. If none "
-                     "provided, will use the input file's `thin_end` attribute.")
+                help="Sample number to stop collecting samples to plot. If "
+                     "none provided, will use the input file's `thin_end` "
+                     "attribute.")
             actions.append(act)
         if 'iteration' not in skip_args:
             act = parser.add_argument(

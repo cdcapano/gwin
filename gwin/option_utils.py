@@ -208,7 +208,7 @@ class ParseLabelArg(argparse.Action):
         if nargs == 0:
             raise ValueError("nargs must not be 0 for this action")
         super(ParseLabelArg, self).__init__(type=type, nargs=nargs,
-                                                 **kwargs)
+                                            **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
         singlearg = isinstance(values, (str, unicode))
