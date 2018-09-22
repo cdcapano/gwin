@@ -304,10 +304,11 @@ class PrintFileParams(argparse.Action):
         The ``input_file`` attribute must be set in the parser namespace before
         this action is called. Otherwise, a ``NoInputFileError`` is raised.
     """
-    def __init__(self, nargs=0, **kwargs):
+    def __init__(self, skip_args=None, nargs=0, **kwargs):
         if nargs != 0:
             raise ValueError("nargs for this action must be 0")
         super(PrintFileParams, self).__init__(nargs=nargs, **kwargs)
+        self.skip_args = skip_args
 
     def __call__(self, parser, namespace, values, option_string=None):
         # get the input file(s)
@@ -332,7 +333,8 @@ class PrintFileParams(argparse.Action):
             except KeyError:
                 filesbytype[fp.name] = [fn]
                 # get any extra options
-                fileparsers[fp.name] = fp.extra_args_parser(add_help=False)
+                fileparsers[fp.name], _ = fp.extra_args_parser(
+                    skip_args=self.skip_args, add_help=False)
             fp.close()
         # now print information about the intersection of all parameters
         parameters = get_common_parameters(input_files, collection='all')
@@ -377,102 +379,54 @@ class PrintFileParams(argparse.Action):
         parser.exit(0)
 
 
-def add_results_option_group(parser):
-    """Adds the options used to call gwin.io.results_from_cli function
-    to an argument parser.
-    
-    These are options releated to loading the results from a run of
-    gwin, for purposes of plotting and/or creating tables.
-
-    Parameters
-    ----------
-    parser : object
-        ArgumentParser instance.
-    """
-
-    results_reading_group = parser.add_argument_group(
-        title="Arguments for loading results",
-        description="Additional, file-specific arguments "
-        "may also be provided, depending on what input-files are given. See "
-        "--file-help for details.")
-
-    # required options
-    results_reading_group.add_argument(
-        "--input-file", type=str, required=True, nargs="+", 
-        action=ParseLabelArg, metavar='FILE[:LABEL]',
-        help="Path to input HDF file(s). A label may be specified for each "
-             "input file to use for plots when multiple files are specified.")
-    results_reading_group.add_argument(
-        "--parameters", type=str, nargs="+", metavar="PARAM[:LABEL]",
-        action=ParseParametersArg,
-        help="Name of parameters to load. If none provided will load all of "
-             "the model params in the input-file. If provided, the "
-             "parameters can be any of the model params or posterior stats "
-             "(loglikelihood, logprior, etc.) in the input file(s), derived "
-             "parameters from them, or any function of them. If multiple "
-             "files are provided, any parameter common to all files may be "
-             "used. Syntax for functions is python; any math functions in "
-             "the numpy libary may be used. Can optionally also specify a "
-             "LABEL for each parameter. If no LABEL is provided, PARAM will "
-             "used as the LABEL. If LABEL is the same as a parameter in "
-             "pycbc.waveform.parameters, the label property of that parameter "
-             "will be used (e.g., if LABEL were 'mchirp' then {} would be "
-             "used). To see all possible parameters that may be used with the "
-             "given input file(s), as well as all avaiable functions, run "
-             "--file-help, along with one or more input files.".format(
-             _waveform.parameters.mchirp.label))
-    # optionals
-    results_reading_group.add_argument(
-        "--thin-start", type=int, default=None,
-        help="Sample number to start collecting samples to plot. If none "
-             "provided, will use the input file's `thin_start` attribute.")
-    results_reading_group.add_argument(
-        "--thin-interval", type=int, default=None,
-        help="Interval to use for thinning samples. If none provided, will "
-             "use the input file's `thin_interval` attribute.")
-    results_reading_group.add_argument(
-        "--thin-end", type=int, default=None,
-        help="Sample number to stop collecting samples to plot. If none "
-             "provided, will use the input file's `thin_end` attribute.")
-    # advanced help
-    results_reading_group.add_argument(
-        "-H", "--file-help", action=PrintFileParams,
-        help="Based on the provided input-file(s), print all available "
-             "parameters that may be retrieved and all possible functions on "
-             "those parameters. Also print available additional arguments "
-             "that may be passed. This option is like an "
-             "advanced --help: if run, the program will just print the "
-             "information to screen, then exit.")
-    return results_reading_group
-
-
 class ResultsArgumentParser(argparse.ArgumentParser):
     """Wraps argument parser, and preloads arguments needed for loading samples
     from a file.
 
     This parser class should be used by any program that wishes to use the
-    standard arguments for loading samples.
+    standard arguments for loading samples. It provides functionality to parse
+    file specific options. These file-specific arguments are not included in
+    the standard ``--help`` (since they depend on what input files are given),
+    but can be seen by running ``--file-help/-H``. The ``--file-help`` will
+    also print off information about what parameters may be used given the
+    input files.
 
-    This class is needed because some of the options need to know what input
-    files were provided. The standard ArgumentParser doesn't handle
-    communication between arguments. Namely, the order in which the parsed
-    namespace is populated depends on the order that arguments were provided
-    on the command line. This means that if the input-files argument were
-    provided after the arguments that need to know what the input files are,
-    those arguments will not know what the input-files are when their actions
-    are called.
+    As with the standard ``ArgumentParser``, running this class's
+    ``parse_args`` will result in an error if arguments are provided that are
+    not recognized by the parser, nor by any of the file-specific arguments.
+    For example, ``parse_args`` would work on the command
+    ``--input-file results.hdf --walker 0`` if
+    ``results.hdf`` was created by a sampler that recognizes a ``--walker``
+    argument, but would raise an error if ``results.hdf`` was created by a
+    sampler that does not recognize a ``--walker`` argument. The extra
+    arguments that are recognized are determined by the sampler IO class's
+    ``extra_args_parser``.
 
-    This gets around that issue by parsing the command line twice: first to get
-    the input files, and second to carry out the input-file dependent
-    arguments.
+    Some arguments may be excluded from the parser using the ``skip_args``
+    optional parameter.
+
+    Parameters
+    ----------
+    skip_args : list of str, optional
+        Do not add the given arguments to the parser. Arguments should be
+        specified as the option string minus the leading '--'; e.g.,
+        ``skip_args=['thin-start']`` would cause the ``thin-start`` argument
+        to not be included. May also specify sampler-specific arguments. Note
+        that ``input-file``, ``file-help``, and ``parameters`` are always
+        added.
+    \**kwargs :
+        All other keyword arguments are passed to ``argparse.ArgumentParser``.
     """
-    def __init__(self, **kwargs):
+    def __init__(self, skip_args=None, **kwargs):
         super(ResultsArgumentParser, self).__init__(**kwargs)
         # add attribute to communicate to arguments what to do when there is
         # no input files
         self.no_input_file_err = False
+        if skip_args is None:
+            skip_args = []
+        self.skip_args = skip_args
         # add the results option grup
-        add_results_option_group(self)
+        self.add_results_option_group()
 
     @property
     def actions(self):
@@ -519,7 +473,7 @@ class ResultsArgumentParser(argparse.ArgumentParser):
         unknown = []
         for fn in opts.input_file:
             fp = loadfile(fn, 'r')
-            sampler_parser = fp.extra_args_parser()
+            sampler_parser, _ = fp.extra_args_parser(skip_args=self.skip_args)
             if sampler_parser is not None:
                 opts, still_unknown = sampler_parser.parse_known_args(
                     extra_opts, namespace=opts)
@@ -529,8 +483,60 @@ class ResultsArgumentParser(argparse.ArgumentParser):
         unknown = set.intersection(*unknown)
         return opts, list(unknown)
 
+    def add_results_option_group(self):
+        """Adds the options used to call gwin.io.results_from_cli function
+        to the parser.
+        
+        These are options releated to loading the results from a run of
+        gwin, for purposes of plotting and/or creating tables.
 
-def results_from_cli(opts, extra_opts=None, load_samples=True):
+        Any argument strings included in the ``skip_args`` attribute will not
+        be added.
+        """
+        results_reading_group = self.add_argument_group(
+            title="Arguments for loading results",
+            description="Additional, file-specific arguments "
+            "may also be provided, depending on what input-files are given. See "
+            "--file-help for details.")
+        results_reading_group.add_argument(
+            "--input-file", type=str, required=True, nargs="+", 
+            action=ParseLabelArg, metavar='FILE[:LABEL]',
+            help="Path to input HDF file(s). A label may be specified for each "
+                 "input file to use for plots when multiple files are specified.")
+        # advanced help
+        results_reading_group.add_argument(
+            "-H", "--file-help",
+            action=PrintFileParams, skip_args=self.skip_args,
+            help="Based on the provided input-file(s), print all available "
+                 "parameters that may be retrieved and all possible functions on "
+                 "those parameters. Also print available additional arguments "
+                 "that may be passed. This option is like an "
+                 "advanced --help: if run, the program will just print the "
+                 "information to screen, then exit.")
+        results_reading_group.add_argument(
+            "--parameters", type=str, nargs="+", metavar="PARAM[:LABEL]",
+            action=ParseParametersArg,
+            help="Name of parameters to load. If none provided will load all of "
+                 "the model params in the input-file. If provided, the "
+                 "parameters can be any of the model params or posterior stats "
+                 "(loglikelihood, logprior, etc.) in the input file(s), derived "
+                 "parameters from them, or any function of them. If multiple "
+                 "files are provided, any parameter common to all files may be "
+                 "used. Syntax for functions is python; any math functions in "
+                 "the numpy libary may be used. Can optionally also specify a "
+                 "LABEL for each parameter. If no LABEL is provided, PARAM will "
+                 "used as the LABEL. If LABEL is the same as a parameter in "
+                 "pycbc.waveform.parameters, the label property of that parameter "
+                 "will be used (e.g., if LABEL were 'mchirp' then {} would be "
+                 "used). To see all possible parameters that may be used with the "
+                 "given input file(s), as well as all avaiable functions, run "
+                 "--file-help, along with one or more input files.".format(
+                 _waveform.parameters.mchirp.label))
+        return results_reading_group
+
+
+
+def results_from_cli(opts, load_samples=True):
     """Loads an inference result file along with any labels associated with it
     from the command line options.
 
@@ -546,10 +552,9 @@ def results_from_cli(opts, extra_opts=None, load_samples=True):
     fp_all : (list of) BaseInferenceFile type
         The result file as an hdf file. If more than one input file,
         then it returns a list.
-    parameters_all : (list of) list
+    parameters : list of str
         List of the parameters to use, parsed from the parameters option.
-        If more than one input file, then it returns a list.
-    labels_all : dict
+    labels : dict
         Dictionary of labels to associate with the parameters.
     samples_all : (list of) FieldArray(s) or None
         If load_samples, the samples as a FieldArray; otherwise, None.
@@ -580,8 +585,7 @@ def results_from_cli(opts, extra_opts=None, load_samples=True):
                 opts.parameters, fp.variable_params)
 
             # read samples from file
-            samples = fp.samples_from_cli(opts, extra_opts=extra_opts,
-                                          parameters=file_parameters)
+            samples = fp.samples_from_cli(opts, parameters=file_parameters)
 
             logging.info("Using {} samples".format(samples.size))
 

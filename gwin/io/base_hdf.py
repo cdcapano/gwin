@@ -213,20 +213,112 @@ class BaseInferenceFile(h5py.File):
         pass
 
     @abstractmethod
-    def samples_from_cli(self, opts, extra_opts=None, parameters=None):
+    def samples_from_cli(self, opts, extra_opts=None, parameters=None,
+                         **kwargs):
         """This should load samples using the given command-line options.
         """
         pass
 
     @staticmethod
-    def extra_args_parser(parser=None, **kwargs):
+    def extra_args_parser(parser=None, skip_args=None, **kwargs):
         """Provides a parser that can be used to parse sampler-specific command
         line options for loading samples.
 
         This is optional. Inheriting classes may override this if they want to
         implement their own options.
+
+        Parameters
+        ----------
+        parser : argparse.ArgumentParser, optional
+            Instead of creating a parser, add arguments to the given one. If
+            none provided, will create one.
+        skip_args : list, optional
+            Don't include the given options. Options should be given as the
+            option string, minus the '--'. For example,
+            ``skip_args=['iteration']`` would cause the ``--iteration``
+            argument not to be included.
+        \**kwargs :
+            All other keyword arguments are passed to the parser that is
+            created.
+
+        Returns
+        -------
+        parser : argparse.ArgumentParser or None
+            If this class adds extra arguments, an argument parser with the
+            extra arguments. Otherwise, will just return whatever was passed
+            for the ``parser`` argument (default is None).
+        actions : list of argparse.Action
+            List of the actions that were added.
         """
-        pass
+        return parser, []
+
+    @staticmethod
+    def _get_optional_args(args, opts, err_on_missing=False, **kwargs):
+        """Convenience function to retrieve arguments from an argparse
+        namespace.
+
+        Parameters
+        ----------
+        args : list of str
+            List of arguments to retreive.
+        opts : argparse.namespace
+            Namespace to retreive arguments for.
+        err_on_missing : bool, optional
+            If an argument is not found in the namespace, raise an
+            AttributeError. Otherwise, just pass. Default is False.
+        \**kwargs :
+            All other keyword arguments are added to the return dictionary.
+            Any keyword argument that is the same as an argument in ``args``
+            will override what was retrieved from ``opts``.
+
+        Returns
+        -------
+        dict :
+            Dictionary mapping arguments to values retrieved from ``opts``. If
+            keyword arguments were provided, these will also be included in the
+            dictionary.
+        """
+        parsed = {}
+        for arg in args:
+            try:
+                parsed[arg] = getattr(opts, arg)
+            except AttributeError as e:
+                if err_on_missing:
+                    raise AttributeError(e)
+                else:
+                    continue
+        parsed.update(kwargs)
+        return parsed
+
+    def samples_from_cli(self, opts, parameters=None, **kwargs):
+        """Reads samples from the given command-line options.
+        
+        Parameters
+        ----------
+        opts : argparse Namespace
+            The options with the settings to use for loading samples (the sort
+            of thing returned by ``ArgumentParser().parse_args``).
+        parameters : (list of) str, optional
+            A list of the parameters to load. If none provided, will try to
+            get the parameters to load from ``opts.parameters``.
+        \**kwargs :
+            All other keyword arguments are passed to ``read_samples``. These
+            will override any options with the same name.
+
+        Returns
+        -------
+        FieldArray :
+            Array of the loaded samples.
+        """
+        if parameters is None and opts.parameters is None:
+            parameters = self.variable_args
+        elif parameters is None:
+            parameters = opts.parameters
+        # parse optional arguments
+        _, extra_actions = self.extra_args_parser()
+        extra_args = [act.dest for act in extra_actions]
+        kwargs = self._get_optional_args(extra_args, opts, **kwargs)
+        return self.read_samples(parameters, **kwargs)
 
     @property
     def static_params(self):
