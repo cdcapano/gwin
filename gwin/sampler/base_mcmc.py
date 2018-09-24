@@ -107,6 +107,35 @@ def raw_stats_to_dict(sampler, raw_stats):
     return {stat: raw_stats[..., ii]
             for (ii, stat) in enumerate(sampler.model.default_stats)}
 
+
+def get_optional_arg_from_config(cp, section, arg, dtype=str):
+    """Convenience function to retrieve an optional argument from a config
+    file.
+
+    Parameters
+    ----------
+    cp : ConfigParser
+        Open config parser to retrieve the argument from.
+    section : str
+        Name of the section to retrieve from.
+    arg : str
+        Name of the argument to retrieve.
+    dtype : datatype, optional
+        Cast the retrieved value (if it exists) to the given datatype. Default
+        is ``str``.
+
+    Returns
+    -------
+    val : None or str
+        If the argument is present, the value. Otherwise, None.
+    """
+    if cp.has_option(section, arg):
+        val = dtype(cp.get(section, arg))
+    else:
+        val = None
+    return val
+
+
 #
 # =============================================================================
 #
@@ -436,6 +465,62 @@ class BaseMCMC(object):
         logging.info("Clearing samples from memory")
         self.clear_samples()
 
+    @staticmethod
+    def checkpoint_from_config(cp, section):
+        """Gets the checkpoint interval from the given config file.
+
+        This looks for 'checkpoint-interval' in the section.
+
+        Parameters
+        ----------
+        cp : ConfigParser
+            Open config parser to retrieve the argument from.
+        section : str
+            Name of the section to retrieve from.
+
+        Return
+        ------
+        int or None :
+            The checkpoint interval, if it is in the section. Otherw
+        """
+        return get_optional_arg_from_config(cp, section, 'checkpoint-interval',
+                                            dtype=int)
+
+    def set_target_from_config(self, cp, section):
+        """Sets the target using the given config file.
+
+        This looks for 'niterations' to set the ``target_niterations``, and
+        'effective-nsamples' to set the ``target_eff_nsamples``.
+
+        Parameters
+        ----------
+        cp : ConfigParser
+            Open config parser to retrieve the argument from.
+        section : str
+            Name of the section to retrieve from.
+        """
+        if cp.has_option(section, "niterations"):
+            niterations = int(cp.get(section, "niterations"))
+        else:
+            niterations = None
+        if cp.has_option(section, "effective-nsamples"):
+            nsamples = int(cp.get(section, "effective-nsamples"))
+        else:
+            nsamples = None
+        self.set_target(niterations=niterations, eff_nsamples=nsamples)
+
+    def set_burn_in_from_config(self, cp):
+        """Sets the burn in class from the given config file.
+
+        If no burn-in section exists in the file, then this just set the
+        burn-in class to None.
+        """
+        try:
+            bit = self.burn_in_class.from_config(cp, self)
+        except ConfigParser.Error:
+            bit = None
+        self.set_burn_in(bit)
+    
     @abstractmethod
     def compute_acf(cls, filename, **kwargs):
         """A method to compute the autocorrelation function of samples in the
@@ -519,25 +604,31 @@ class MCMCAutocorrSupport(object):
         return acfs
 
     @classmethod
-    def compute_acl(cls, filename, start_index=None, end_index=None):
+    def compute_acl(cls, filename, start_index=None, end_index=None,
+                    min_nsamples=10):
         """Computes the autocorrleation length for all model params in the
         given file.
 
         Parameter values are averaged over all walkers at each iteration.
-        The ACL is then calculated over the averaged chain. If the returned ACL
-        is `inf`,  will default to the number of current iterations.
+        The ACL is then calculated over the averaged chain. If an ACL cannot
+        be calculated because there are not enough samples, it will be set
+        to ``inf``.
 
         Parameters
         -----------
         filename : str
             Name of a samples file to compute ACLs for.
-        start_index : {None, int}
+        start_index : int, optional
             The start index to compute the acl from. If None, will try to use
             the number of burn-in iterations in the file; otherwise, will start
             at the first sample.
-        end_index : {None, int}
+        end_index : int, optional
             The end index to compute the acl to. If None, will go to the end
             of the current iteration.
+        min_nsamples : int, optional
+            Require a minimum number of samples to compute an ACL. If the
+            number of samples per walker is less than this, will just set to
+            ``inf``. Default is 10.
 
         Returns
         -------
@@ -551,10 +642,8 @@ class MCMCAutocorrSupport(object):
                     param, thin_start=start_index, thin_interval=1,
                     thin_end=end_index, flatten=False)[param]
                 samples = samples.mean(axis=0)
-                # if < 10 samples, just set to inf
-                # Note: this should be done inside of pycbc's autocorrelation
-                # function
-                if samples.size < 10:
+                # if < min number of samples, just set to inf
+                if samples.size < min_nsamples:
                     acl = numpy.inf
                 else:
                     acl = autocorrelation.calculate_acl(samples)
