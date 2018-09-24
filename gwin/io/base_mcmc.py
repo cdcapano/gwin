@@ -47,12 +47,9 @@ class MCMCIO(object):
                       start_iteration=None, max_iterations=None):
         """Writes samples to the given file.
 
-        Results are written to:
-
-            ``fp[samples_group/{vararg}]``,
-
-        where ``{vararg}`` is the name of a model params. The samples are
-        written as an ``nwalkers x niterations`` array.
+        Results are written to ``samples_group/{vararg}``, where ``{vararg}``
+        is the name of a model params. The samples are written as an
+        ``nwalkers x niterations`` array.
 
         Parameters
         -----------
@@ -117,6 +114,23 @@ class MCMCIO(object):
         fields : list
             The list of field names to retrieve. Must be names of datasets in
             the ``samples_group``.
+        thin_start : int, optional
+            Start reading from the given iteration. Default is to start from
+            the first iteration.
+        thin_interval : int, optional
+            Only read every ``thin_interval``th sample. Default is 1.
+        thin_end : int, optional
+            Stop reading at the given iteration. Default is to end at the last
+            iteration.
+        iteration : int, optional
+            Only read the given iteration. If this provided, it overrides
+            the ``thin_(start|interval|end)`` options.
+        walkers : int, optional
+            Only read from the given walkers. Default is to read all.
+        flatten : bool, optional
+            Flatten the samples to 1D arrays before returning. Otherwise, the
+            returned arrays will have shape (requested walkers x
+            requested iteration(s)). Default is True.
 
         Returns
         -------
@@ -127,7 +141,7 @@ class MCMCIO(object):
             fields = [fields]
         # walkers to load
         if walkers is not None:
-            widx = numpy.zeros(fp.nwalkers, dtype=bool)
+            widx = numpy.zeros(self.nwalkers, dtype=bool)
             widx[walkers] = True
         else:
             widx = slice(0, None)
@@ -289,11 +303,6 @@ class MCMCIO(object):
 
     def read_acls(self):
         """Reads the acls of all the parameters.
-
-        Parameters
-        ----------
-        fp : InferenceFile
-            An open file handler to read the acls from.
 
         Returns
         -------
