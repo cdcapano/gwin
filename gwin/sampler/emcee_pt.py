@@ -26,7 +26,8 @@ import emcee
 from pycbc.pool import choose_pool
 
 from .base import BaseSampler
-from .base_mcmc import (BaseMCMC, raw_stats_to_dict)
+from .base_mcmc import (BaseMCMC, raw_samples_to_dict,
+                        get_optional_arg_from_config)
 from .base_multitemper import (MultiTemperedSupport,
                                MultiTemperedAutocorrSupport)
 from ..burn_in import MultiTemperedMCMCBurnInTests

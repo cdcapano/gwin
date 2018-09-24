@@ -28,6 +28,7 @@ from __future__ import absolute_import
 from abc import (ABCMeta, abstractmethod, abstractproperty)
 import logging
 import numpy
+from pycbc.workflow import ConfigParser
 from pycbc.filter import autocorrelation
 
 from ..io import validate_checkpoint_files

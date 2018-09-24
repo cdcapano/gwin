@@ -33,7 +33,8 @@ import emcee
 from pycbc.pool import choose_pool
 
 from .base import BaseSampler
-from .base_mcmc import (BaseMCMC, MCMCAutocorrSupport, raw_samples_to_dict)
+from .base_mcmc import (BaseMCMC, MCMCAutocorrSupport, raw_samples_to_dict,
+                        raw_stats_to_dict, get_optional_arg_from_config)
 from ..burn_in import MCMCBurnInTests
 from ..io import EmceeFile
 from .. import models
