@@ -38,7 +38,7 @@ class EmceeFile(MCMCIO, BaseInferenceFile):
 
         Parameters
         -----------
-        walkers : {None, (list of) int}
+        walkers : (list of) int, optional
             The walker index (or a list of indices) to retrieve. If None,
             samples from all walkers will be obtained.
 
@@ -72,4 +72,5 @@ class EmceeFile(MCMCIO, BaseInferenceFile):
             self[group] = acceptance_fraction
 
     def write_posterior(self, filename, **kwargs):
+        """Write me."""
         pass
