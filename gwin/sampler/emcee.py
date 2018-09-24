@@ -31,7 +31,6 @@ from __future__ import absolute_import
 import numpy
 import emcee
 from pycbc.pool import choose_pool
-from pycbc.workflow import ConfigParser
 
 from .base import BaseSampler
 from .base_mcmc import (BaseMCMC, MCMCAutocorrSupport, raw_samples_to_dict)
