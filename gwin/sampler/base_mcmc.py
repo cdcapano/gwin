@@ -77,36 +77,40 @@ def raw_samples_to_dict(sampler, raw_samples):
     return samples
 
 
-def raw_stats_to_dict(sampler, raw_stats):
-    """Converts an ND array of model stats to a dict.
+def blob_data_to_dict(stat_names, blobs):
+    """Converts list of "blobs" to a dictionary of model stats.
 
-    The ``raw_stats`` may either be a numpy array or a list. If the
-    former, the stats are assumed to have shape
-    ``[sampler.base_shape x] niterations x nstats, where nstats are the number
-    of stats returned by ``sampler.model.default_stats``. If the latter, the
-    list is cast to an array that is assumed to be the same shape as if an
-    array was given.
+    Samplers like ``emcee`` store the extra tuple returned by ``CallModel`` to
+    a list called blobs. This is a list of lists of tuples with shape
+    niterations x nwalkers x nstats, where nstats is the number of stats
+    returned by the model's ``default_stats``. This converts that list to a
+    dictionary of arrays keyed by the stat names.
 
     Parameters
     ----------
-    sampler : sampler instance
-        An instance of an MCMC sampler.
-    raw_stats : array or list
-        The stats to convert.
+    stat_names : list of str
+        The list of the stat names.
+    blobs : list of list of tuples
+        The data to convert.
 
     Returns
     -------
     dict :
         A dictionary mapping the model's ``default_stats`` to arrays of values.
-        Each array will have shape ``[sampler.base_shape x] niterations``.
+        Each array will have shape ``nwalkers x niterations``.
     """
-    if not isinstance(raw_stats, numpy.ndarray):
-        # Assume list. Since the model returns a tuple of values, this should
-        # be a [sampler.base_shape x] x niterations list of tuples. We can
-        # therefore immediately convert this to a ND array.
-        raw_stats = numpy.array(raw_stats)
-    return {stat: raw_stats[..., ii]
-            for (ii, stat) in enumerate(sampler.model.default_stats)}
+    # get the dtypes of each of the stats; we'll just take this from the
+    # first iteration and walker
+    dtypes = [type(val) for val in blobs[0][0]]
+    assert len(stat_names) == len(dtypes), (
+        "number of stat names must match length of tuples in the blobs")
+    # convert to an array; to ensure that we get the dtypes correct, we'll
+    # cast to a structured array
+    raw_stats = numpy.array(blobs, dtype=zip(stat_names, dtypes))
+    # transpose so that it has shape nwalkers x niterations
+    raw_stats = raw_stats.transpose()
+    # now return as a dictionary
+    return {stat: raw_stats[stat] for stat in stat_names}
 
 
 def get_optional_arg_from_config(cp, section, arg, dtype=str):

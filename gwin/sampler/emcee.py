@@ -34,7 +34,7 @@ from pycbc.pool import choose_pool
 
 from .base import BaseSampler
 from .base_mcmc import (BaseMCMC, MCMCAutocorrSupport, raw_samples_to_dict,
-                        raw_stats_to_dict, get_optional_arg_from_config)
+                        blob_data_to_dict, get_optional_arg_from_config)
 from ..burn_in import MCMCBurnInTests
 from ..io import EmceeFile
 from .. import models
@@ -122,11 +122,8 @@ class EmceeEnsembleSampler(MCMCAutocorrSupport, BaseMCMC, BaseSampler):
 
         The returned array has shape ``nwalkers x niterations``.
         """
-        raw_stats = numpy.array(self._sampler.blobs)
-        # raw_stats has shape niterations x nwalkers x nstats; transpose
-        # so that it has shape nwalkers x niterations x nstats
-        raw_stats = raw_stats.transpose((1, 0, 2))
-        return raw_stats_to_dict(self, raw_stats)
+        stats = self.model.default_stats
+        return blob_data_to_dict(stats, self._sampler.blobs)
 
     def clear_samples(self):
         """Clears the samples and stats from memory.
