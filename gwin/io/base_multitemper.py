@@ -205,6 +205,8 @@ class MultiTemperedMCMCIO(MCMCIO):
     def extra_args_parser(parser=None, skip_args=None, **kwargs):
         """Adds --temps to MCMCIO parser.
         """
+        if skip_args is None:
+            skip_args = []
         parser, actions = MCMCIO.extra_args_parser(
             parser=parser, skip_args=skip_args, **kwargs)
         if 'temps' not in skip_args:

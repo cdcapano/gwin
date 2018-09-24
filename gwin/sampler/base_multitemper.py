@@ -38,7 +38,7 @@ class MultiTemperedSupport(object):
     @property
     def ntemps(self):
         """The number of temeratures that are set."""
-        return self.ntemps
+        return self._ntemps
 
 
 class MultiTemperedAutocorrSupport(object):
@@ -46,7 +46,7 @@ class MultiTemperedAutocorrSupport(object):
     """
 
     @classmethod
-    def compute_acfs(cls, filename, start_index=None, end_index=None,
+    def compute_acf(cls, filename, start_index=None, end_index=None,
                      per_walker=False, walkers=None, parameters=None,
                      temps=None):
         """Computes the autocorrleation function of the model params in the
@@ -138,7 +138,7 @@ class MultiTemperedAutocorrSupport(object):
         return acfs
 
     @classmethod
-    def compute_acls(cls, filename, start_index=None, end_index=None,
+    def compute_acl(cls, filename, start_index=None, end_index=None,
                     min_nsamples=10):
         """Computes the autocorrleation length for all model params and
         temperatures in the given file.
@@ -173,7 +173,7 @@ class MultiTemperedAutocorrSupport(object):
                 end_index = fp.niterations
             tidx = numpy.arange(fp.ntemps)
             for param in fp.variable_params:
-                these_acls = numpy.zeros(fp.ntemps, dtype=int)
+                these_acls = numpy.zeros(fp.ntemps)
                 for tk in tidx:
                     samples = fp.read_raw_samples(
                         param, thin_start=start_index, thin_interval=1,

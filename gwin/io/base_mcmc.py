@@ -256,6 +256,11 @@ class MCMCIO(object):
         """Returns the number of iterations the sampler was run for."""
         return self[self.sampler_group].attrs['niterations']
 
+    @property
+    def nwalkers(self):
+        """Returns the number of walkers used by the sampler."""
+        return self[self.sampler_group].attrs['nwalkers']
+
     def write_sampler_metadata(self, sampler):
         """Writes the sampler's metadata."""
         self.attrs['sampler'] = sampler.name

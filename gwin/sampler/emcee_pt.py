@@ -86,12 +86,11 @@ class EmceePTSampler(MultiTemperedAutocorrSupport, MultiTemperedSupport,
         # construct the sampler: PTSampler needs the likelihood and prior
         # functions separately
         ndim = len(model.variable_params)
-        sampler = emcee.PTSampler(ntemps, nwalkers, ndim,
-                                  model_call, prior_call, pool=pool)
-        # initialize
-        super(EmceePTSampler, self).__init__(sampler, model)
+        self._sampler = emcee.PTSampler(ntemps, nwalkers, ndim,
+                                        model_call, prior_call, pool=pool)
         self._nwalkers = nwalkers
         self._ntemps = ntemps
+        self._checkpoint_interval = checkpoint_interval
 
     @property
     def io(self):
@@ -156,10 +155,10 @@ class EmceePTSampler(MultiTemperedAutocorrSupport, MultiTemperedSupport,
         logl = self._sampler.lnlikelihood
         # get prior from posterior
         logp = self._sampler.lnprobability - logl
+        logjacobian = numpy.zeros(logp.size)
         # if different coordinates were used for sampling, get the jacobian
         if self.model.sampling_transforms is not None:
             samples = self.samples
-            logjacobian = numpy.zeros(logp.size)
             flattened_samples = {param: arr.ravel()
                                  for param, arr in samples.items()}
             for ii in range(logp.size):
@@ -202,7 +201,7 @@ class EmceePTSampler(MultiTemperedAutocorrSupport, MultiTemperedSupport,
         """
         pos = self._pos
         if pos is None:
-            pos = self.p0
+            pos = self._p0
         res = self._sampler.run_mcmc(pos, niterations, **kwargs)
         p, _, _ = res[0], res[1], res[2]
         # update the positions
@@ -226,7 +225,7 @@ class EmceePTSampler(MultiTemperedAutocorrSupport, MultiTemperedSupport,
             # write accpetance
             fp.write_acceptance_fraction(self._sampler.acceptance_fraction)
             # write random state
-            fp.write_random_state(state=self._sampler.random_state)
+            fp.write_random_state()
 
     @classmethod
     def calculate_logevidence(cls, filename, thin_start=None, thin_end=None,
