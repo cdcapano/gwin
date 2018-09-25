@@ -260,7 +260,7 @@ class EmceePTSampler(MultiTemperedAutocorrSupport, MultiTemperedSupport,
         """
         with cls._io(filename, 'r') as fp:
             logls = fp.read_raw_samples(['loglikelihood'],
-                                        thin_start=thin_start, 
+                                        thin_start=thin_start,
                                         thin_interval=thin_interval,
                                         thin_end=thin_end,
                                         temps='all', flatten=False)
@@ -298,4 +298,3 @@ class EmceePTSampler(MultiTemperedAutocorrSupport, MultiTemperedSupport,
         for fn in [self.checkpoint_file, self.backup_file]:
             with self.io(fn, "a") as fp:
                 fp.write_logevidence(logz, dlogz)
-

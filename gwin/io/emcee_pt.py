@@ -22,6 +22,7 @@ from __future__ import absolute_import
 from .base_hdf import BaseInferenceFile
 from .base_multitemper import MultiTemperedMCMCIO
 
+
 class EmceePTFile(MultiTemperedMCMCIO, BaseInferenceFile):
     """Class to handle file IO for the ``emcee`` sampler."""
 
@@ -71,7 +72,7 @@ class EmceePTFile(MultiTemperedMCMCIO, BaseInferenceFile):
 
     def write_acceptance_fraction(self, acceptance_fraction):
         """Write acceptance_fraction data to file.
-        
+
         Results are written to ``[sampler_group]/acceptance_fraction``; the
         resulting dataset has shape (ntemps, nwalkers).
 

@@ -47,8 +47,8 @@ class MultiTemperedAutocorrSupport(object):
 
     @classmethod
     def compute_acf(cls, filename, start_index=None, end_index=None,
-                     per_walker=False, walkers=None, parameters=None,
-                     temps=None):
+                    per_walker=False, walkers=None, parameters=None,
+                    temps=None):
         """Computes the autocorrleation function of the model params in the
         given file.
 
@@ -190,4 +190,3 @@ class MultiTemperedAutocorrSupport(object):
                     these_acls[tk] = acl
                 acls[param] = these_acls
         return acls
-

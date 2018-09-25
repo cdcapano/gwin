@@ -70,7 +70,7 @@ class ParseTempsArg(argparse.Action):
 class MultiTemperedMCMCIO(MCMCIO):
     """Abstract base class for multi-tempered MCMC sampler IO.
     """
-    
+
     @property
     def ntemps(self):
         """Returns the number of temperatures used by the sampler."""
@@ -258,4 +258,3 @@ class MultiTemperedMCMCIO(MCMCIO):
                      "plot the coldest (= 0) temperature chain.")
             actions.append(act)
         return parser, actions
-

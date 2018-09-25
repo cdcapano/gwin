@@ -525,7 +525,7 @@ class BaseMCMC(object):
         except ConfigParser.Error:
             bit = None
         self.set_burn_in(bit)
-    
+
     @abstractmethod
     def compute_acf(cls, filename, **kwargs):
         """A method to compute the autocorrelation function of samples in the
