@@ -147,7 +147,7 @@ class MCMCIO(object):
             widx = slice(0, None)
         # get the slice to use
         if iteration is not None:
-            get_index = iteration
+            get_index = int(iteration)
         else:
             get_index = self.get_slice(thin_start=thin_start,
                                        thin_end=thin_end,
@@ -304,7 +304,7 @@ class MCMCIO(object):
         self[self.sampler_group].attrs['acl'] = acl
         # set the default thin interval to be the acl (if it is finite)
         if numpy.isfinite(acl):
-            self.attrs['thin_interval'] = acl
+            self.attrs['thin_interval'] = int(numpy.ceil(acl))
 
     def read_acls(self):
         """Reads the acls of all the parameters.

@@ -398,7 +398,7 @@ class MultiTemperedMCMCBurnInTests(MCMCBurnInTests):
         acls = super(MultiTemperedMCMCBurnInTests, self)._getacls(
             filename, start_index)
         # return the max for each parameter
-        return {param: vals.max() for (param, val) in acls.items()}
+        return {param: vals.max() for (param, vals) in acls.items()}
 
     def _getlogposts(self, filename):
         """Convenience function for retrieving log posteriors.

@@ -23,6 +23,7 @@ from __future__ import absolute_import
 
 import numpy
 import emcee
+import logging
 from pycbc.pool import choose_pool
 
 from .base import BaseSampler
@@ -282,6 +283,7 @@ class EmceePTSampler(MultiTemperedAutocorrSupport, MultiTemperedSupport,
         The thin start/interval/end for calculating the log evidence are
         retrieved from the checkpoint file's thinning attributes.
         """
+        logging.info("Calculating log evidence")
         # get the thinning settings
         with self.io(self.checkpoint_file, 'r') as fp:
             thin_start = fp.thin_start
@@ -291,6 +293,7 @@ class EmceePTSampler(MultiTemperedAutocorrSupport, MultiTemperedSupport,
         logz, dlogz = self.calculate_logevidence(
             self.checkpoint_file, thin_start=thin_start, thin_end=thin_end,
             thin_interval=thin_interval)
+        logging.info("log Z, dlog Z: {}, {}".format(logz, dlogz))
         # write to both the checkpoint and backup
         for fn in [self.checkpoint_file, self.backup_file]:
             with self.io(fn, "a") as fp:
