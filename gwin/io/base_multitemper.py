@@ -26,7 +26,45 @@
 
 from __future__ import absolute_import
 
+import argparse
+
 from .base_mcmc import MCMCIO
+
+
+class ParseTempsArg(argparse.Action):
+    """Argparse action that will parse temps argument.
+
+    If the provided argument is 'all', sets 'all' in the namespace dest. If a
+    a sequence of numbers are provided, converts those numbers to ints before
+    saving to the namespace.
+    """
+    def __init__(self, type=str, **kwargs):
+        # check that type is string
+        if type != str:
+            raise ValueError("the type for this action must be a string")
+        super(ParseTempsArg, self).__init__(type=type, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        singlearg = isinstance(values, (str, unicode))
+        if singlearg:
+            values = [values]
+        if values[0] == 'all':
+            # check that only a single value was provided
+            if len(values) > 1:
+                raise ValueError("if provide 'all', should not specify any "
+                                 "other temps")
+            temps = 'all'
+        else:
+            temps = []
+            for val in values:
+                try:
+                    val = int(val)
+                except ValueError:
+                    pass
+                temps.append(val)
+            if singlearg:
+                temps = temps[0]
+        setattr(namespace, self.dest, temps)
 
 
 class MultiTemperedMCMCIO(MCMCIO):
@@ -175,7 +213,7 @@ class MultiTemperedMCMCIO(MCMCIO):
                 ntemps = self.ntemps
         # get the slice to use
         if iteration is not None:
-            get_index = iteration
+            get_index = int(iteration)
             niterations = 1
         else:
             get_index = self.get_slice(thin_start=thin_start,
@@ -211,7 +249,7 @@ class MultiTemperedMCMCIO(MCMCIO):
             parser=parser, skip_args=skip_args, **kwargs)
         if 'temps' not in skip_args:
             act = parser.add_argument(
-                "--temps", nargs="+", default=None,
+                "--temps", nargs="+", default=None, action=ParseTempsArg,
                 help="Get the given temperatures. May provide either a "
                      "sequence of integers specifying the temperatures to "
                      "plot, or 'all' for all temperatures. Default is to only "
