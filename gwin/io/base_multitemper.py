@@ -185,6 +185,8 @@ class MultiTemperedMCMCIO(MCMCIO):
             An instance of the given array class populated with values
             retrieved from the fields.
         """
+        if isinstance(fields, (str, unicode)):
+            fields = [fields]
         # walkers to load
         if walkers is not None:
             widx = numpy.zeros(self.nwalkers, dtype=bool)
